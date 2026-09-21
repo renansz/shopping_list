@@ -5,7 +5,7 @@
   "description": "Lista de compras compartilhada da família, com tempo real, histórico e instalação como app (PWA).",
   "type": "module",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "start": "node server/index.js",
