@@ -1,0 +1,19 @@
+{
+  "name": "lista-de-compras",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lista de compras compartilhada da família, com tempo real, histórico e instalação como app (PWA).",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js",
+    "icons": "node tools/gen-icons.mjs",
+    "backup": "node tools/backup.mjs",
+    "test:navegador": "node tools/teste-navegador.mjs"
+  },
+  "dependencies": {}
+}
