@@ -15,6 +15,9 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /data
+      # Dentro do container a porta é sempre 3000 — quem muda é o lado de fora,
+      # logo abaixo. Isso sobrescreve um PORT que venha do .env.
+      PORT: "3000"
       # Faz o app confiar no X-Forwarded-Proto do proxy e marcar o cookie
       # de sessão como Secure.
       TRUST_PROXY: "1"
@@ -22,9 +25,10 @@ services:
       - "3000"
     ports:
       # Publicado só no localhost da VPS: quem fala com a internet é o proxy.
-      # Com o perfil "proxy", nem isso seria necessário — mantido para você
-      # poder testar com `curl localhost:3000` direto na máquina.
-      - "127.0.0.1:3000:3000"
+      # Se a porta 3000 já estiver ocupada por outra aplicação na máquina,
+      # defina PORTA_LOCAL no .env (ex.: PORTA_LOCAL=3010) — só o lado de fora
+      # muda, e o proxy continua apontando para o container.
+      - "127.0.0.1:${PORTA_LOCAL:-3000}:3000"
     volumes:
       - lista-dados:/data
     healthcheck:

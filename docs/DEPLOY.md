@@ -49,6 +49,27 @@ sudo usermod -aG docker "$USER"     # saia e entre de novo para valer
 docker --version
 ```
 
+### Já tem outra aplicação nesta VPS?
+
+Conviver é tranquilo — o que não pode é duas coisas disputando a mesma porta.
+Rode este diagnóstico e siga a tabela:
+
+```sh
+sudo ss -lptn 'sport = :80 or sport = :443 or sport = :3000'
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
+```
+
+| O que aparece | Caminho |
+| --- | --- |
+| Nada nas portas 80/443 | [Opção A](#2-opção-a-tudo-em-docker-recomendado): o Caddy deste repositório assume o HTTPS |
+| Um Caddy, Nginx ou Traefik ocupando 80/443 | [Opção B](#3-opção-b-docker--caddy-já-instalado-na-vps): só a aplicação sobe, e o proxy que já existe ganha mais um site |
+| A outra aplicação ocupa 80/443 **sem** proxy na frente | Ela precisa passar a atender atrás de um proxy; só há um dono possível para as portas 80 e 443 |
+| A porta 3000 está ocupada | Defina `PORTA_LOCAL=3010` (ou outra livre) no `.env` — só muda o lado de fora do container |
+
+Nenhum dos dois casos exige mexer na outra aplicação, desde que ela já esteja
+atrás de um proxy: acrescentar um site é uma alteração aditiva, e o
+`systemctl reload` recarrega a configuração sem derrubar o que está no ar.
+
 ## 2. Opção A: tudo em Docker (recomendado)
 
 Um comando sobe a aplicação e o Caddy, que cuida do certificado sozinho.
@@ -102,15 +123,43 @@ cp .env.example .env && nano .env
 docker compose up -d --build          # sem o perfil "proxy"
 ```
 
-A aplicação fica em `127.0.0.1:3000`. Agora acrescente o site ao Caddy da
-máquina — o bloco está pronto em `deploy/Caddyfile`; copie-o para dentro do seu
-`/etc/caddy/Caddyfile`, ou use o arquivo inteiro se ele ainda não tiver nada:
+A aplicação fica em `127.0.0.1:3000` (ou na porta que você pôs em
+`PORTA_LOCAL`). Agora acrescente **mais um site** ao proxy que já existe, sem
+tocar no que já está lá.
+
+**Com Caddy na máquina** — acrescente este bloco ao fim do seu
+`/etc/caddy/Caddyfile` (é o mesmo conteúdo de `deploy/Caddyfile`, já resolvido):
+
+```caddyfile
+list.zanelatto.com {
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	reverse_proxy 127.0.0.1:3000 {
+		flush_interval -1
+		transport http {
+			response_header_timeout 24h
+		}
+	}
+}
+```
 
 ```sh
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+sudo systemctl reload caddy      # reload não derruba os outros sites
 ```
+
+**Com Traefik**, a aplicação já está pronta para ser descoberta por labels —
+acrescente ao serviço `lista` no `docker-compose.yml`:
+
+```yaml
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.lista.rule: Host(`list.zanelatto.com`)
+      traefik.http.routers.lista.tls.certresolver: letsencrypt
+      traefik.http.services.lista.loadbalancer.server.port: "3000"
+```
+
 
 Com Nginx em vez de Caddy, use `deploy/nginx.conf` e o certbot:
 
