@@ -50,8 +50,13 @@ Detalhes em [docs/ARQUITETURA.md](docs/ARQUITETURA.md) e a lista de rotas em
 
 ## Rodando na sua máquina
 
-Requer **Node 22.5 ou mais novo** (o `node:sqlite` só existe a partir dessa
-versão).
+Requer **Node 22.13 ou mais novo** — é a versão em que o `node:sqlite`, o banco
+embutido que o projeto usa, passou a funcionar sem flag. Se o seu for mais
+antigo, o app avisa na hora de subir e diz como atualizar.
+
+```sh
+node --version   # precisa ser >= v22.13.0
+```
 
 ```sh
 git clone https://github.com/renansz/shopping_list.git

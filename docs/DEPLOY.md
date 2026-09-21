@@ -29,7 +29,7 @@ Se for rodar sem Docker, instale o Node 22 ou mais novo:
 ```sh
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
-node --version   # precisa ser >= v22.5
+node --version   # precisa ser >= v22.13 (antes disso o node:sqlite exigia flag)
 ```
 
 ## 2. Opção A: Docker (recomendado)

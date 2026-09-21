@@ -1,7 +1,14 @@
 import http from 'node:http';
-import { loadDotEnv, readConfig } from './config.js';
-import { openDatabase } from './db.js';
-import { createApp } from './app.js';
+import { verificarAmbiente } from './verifica-ambiente.js';
+
+// Os demais módulos entram por import() de propósito: num Node antigo o
+// `node:sqlite` falharia ao carregar antes de qualquer código rodar, e o
+// usuário veria ERR_UNKNOWN_BUILTIN_MODULE em vez da explicação abaixo.
+await verificarAmbiente();
+
+const { loadDotEnv, readConfig } = await import('./config.js');
+const { openDatabase } = await import('./db.js');
+const { createApp } = await import('./app.js');
 
 loadDotEnv();
 const config = readConfig();
