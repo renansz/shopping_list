@@ -1,0 +1,37 @@
+# Overlay para quando a VPS já roda outro proxy (Caddy, Nginx, Traefik) DENTRO
+# de um container Docker — o caso mais comum quando a VPS já hospeda outra
+# aplicação em Docker.
+#
+# Nesse cenário, "reverse_proxy 127.0.0.1:3000" não funciona: de dentro de um
+# container, 127.0.0.1 é o próprio container, não o host. A solução é colocar
+# esta aplicação na MESMA rede Docker do proxy existente, para ele alcançar
+# pelo nome do serviço (`lista:3000`), sem publicar porta nenhuma no host.
+#
+# Uso:
+#   1. Descubra o nome da rede do proxy existente:
+#        docker network ls
+#      (geralmente "<pasta-do-projeto>_default", ex.: meuoutroapp_default)
+#
+#   2. Defina no .env:
+#        REDE_PROXY=nome_da_rede_encontrada_acima
+#
+#   3. Suba com os dois arquivos combinados, sem o perfil "proxy" (o Caddy
+#      deste repositório fica de fora — quem serve o HTTPS é o proxy que já
+#      existe):
+#        docker compose -f docker-compose.yml -f deploy/docker-compose.shared-proxy.yml up -d --build
+#
+#   4. Acrescente um bloco ao Caddyfile do proxy existente apontando para
+#      "lista:3000" (exemplo em deploy/Caddyfile, seção "site adicional") e
+#      recarregue esse proxy — nunca reinicie o container à toa, reload não
+#      derruba o que já está no ar.
+
+services:
+  lista:
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    name: ${REDE_PROXY:?defina REDE_PROXY no .env com o nome da rede do proxy existente}
+    external: true

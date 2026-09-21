@@ -5,7 +5,7 @@ Guia do zero até o app instalado no celular da família, com HTTPS em
 
 - [1. Antes de começar](#1-antes-de-começar)
 - [2. Opção A: tudo em Docker](#2-opção-a-tudo-em-docker-recomendado)
-- [3. Opção B: Docker + Caddy já instalado na VPS](#3-opção-b-docker--caddy-já-instalado-na-vps)
+- [3. Opção B: já tem um proxy na VPS](#3-opção-b-já-tem-um-proxy-na-vps)
 - [4. Opção C: systemd, sem Docker](#4-opção-c-systemd-sem-docker)
 - [5. Conferindo se deu certo](#5-conferindo-se-deu-certo)
 - [6. Instalar no celular](#6-instalar-no-celular)
@@ -39,7 +39,7 @@ sudo ufw allow 80,443/tcp                      # se usar ufw
 ```
 
 Se já houver um Nginx ou Apache ocupando essas portas, use a
-[Opção B](#3-opção-b-docker--caddy-já-instalado-na-vps) ou pare o outro serviço.
+[Opção B](#3-opção-b-já-tem-um-proxy-na-vps) ou pare o outro serviço.
 
 **3. Docker instalado.**
 
@@ -62,7 +62,7 @@ docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
 | O que aparece | Caminho |
 | --- | --- |
 | Nada nas portas 80/443 | [Opção A](#2-opção-a-tudo-em-docker-recomendado): o Caddy deste repositório assume o HTTPS |
-| Um Caddy, Nginx ou Traefik ocupando 80/443 | [Opção B](#3-opção-b-docker--caddy-já-instalado-na-vps): só a aplicação sobe, e o proxy que já existe ganha mais um site |
+| Um Caddy, Nginx ou Traefik ocupando 80/443 | [Opção B](#3-opção-b-já-tem-um-proxy-na-vps): só a aplicação sobe, e o proxy que já existe ganha mais um site |
 | A outra aplicação ocupa 80/443 **sem** proxy na frente | Ela precisa passar a atender atrás de um proxy; só há um dono possível para as portas 80 e 443 |
 | A porta 3000 está ocupada | Defina `PORTA_LOCAL=3010` (ou outra livre) no `.env` — só muda o lado de fora do container |
 
@@ -113,9 +113,77 @@ Para usar outro domínio, sem editar arquivo nenhum:
 DOMINIO=outro.dominio.com docker compose --profile proxy up -d
 ```
 
-## 3. Opção B: Docker + Caddy já instalado na VPS
+## 3. Opção B: já tem um proxy na VPS
 
-Use quando a VPS já tem um Caddy servindo outros sites.
+Use quando a VPS já serve outros sites. O caminho muda conforme onde esse
+proxy roda — confira antes de escolher:
+
+```sh
+docker ps --format '{{.Names}}\t{{.Image}}'   # o proxy aparece na lista?
+```
+
+### 3a. O proxy roda dentro de um container Docker (caso mais comum)
+
+Não dá para simplesmente apontar para `127.0.0.1:3000`: de dentro de um
+container, `127.0.0.1` é o próprio container, nunca o host. A solução é
+colocar esta aplicação na **mesma rede Docker** do proxy existente, para ele
+alcançar pelo nome do serviço.
+
+```sh
+cd /opt/lista-de-compras
+cp .env.example .env && nano .env
+# defina HOUSEHOLD_PASSWORD e, no fim do arquivo, REDE_PROXY com o nome
+# encontrado em `docker network ls` (geralmente "<pasta-do-outro-projeto>_default")
+
+docker compose -f docker-compose.yml -f deploy/docker-compose.shared-proxy.yml up -d --build
+```
+
+Nenhuma porta é publicada no host — a aplicação só existe dentro dessa rede
+Docker, o que já é uma isolação a mais.
+
+**Com Caddy em container**, acrescente este bloco ao Caddyfile *dele* (não ao
+deste repositório) — o modelo pronto está comentado no fim de
+`deploy/Caddyfile`:
+
+```caddyfile
+list.zanelatto.com {
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	reverse_proxy lista:3000 {
+		flush_interval -1
+		header_up X-Real-IP {remote_host}
+		transport http {
+			response_header_timeout 24h
+		}
+	}
+}
+```
+
+```sh
+docker exec <container-do-caddy> caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec <container-do-caddy> caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+`reload` aplica a configuração nova sem derrubar as conexões dos outros
+sites — nunca use `restart` só para isto.
+
+**Com Traefik em container**, ele descobre serviços pelas labels, mas só
+enxerga containers que estejam na mesma rede que ele monitora — o mesmo
+`docker-compose.shared-proxy.yml` resolve isso. Acrescente ao serviço `lista`:
+
+```yaml
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.lista.rule: Host(`list.zanelatto.com`)
+      traefik.http.routers.lista.tls.certresolver: letsencrypt
+      traefik.http.services.lista.loadbalancer.server.port: "3000"
+```
+
+### 3b. O proxy roda direto na VPS (não containerizado)
+
+Aqui `127.0.0.1` já é o host de verdade, então o caminho mais simples
+funciona sem overlay nenhum:
 
 ```sh
 cd /opt/lista-de-compras
@@ -123,12 +191,7 @@ cp .env.example .env && nano .env
 docker compose up -d --build          # sem o perfil "proxy"
 ```
 
-A aplicação fica em `127.0.0.1:3000` (ou na porta que você pôs em
-`PORTA_LOCAL`). Agora acrescente **mais um site** ao proxy que já existe, sem
-tocar no que já está lá.
-
-**Com Caddy na máquina** — acrescente este bloco ao fim do seu
-`/etc/caddy/Caddyfile` (é o mesmo conteúdo de `deploy/Caddyfile`, já resolvido):
+Acrescente ao `/etc/caddy/Caddyfile` da máquina:
 
 ```caddyfile
 list.zanelatto.com {
@@ -149,19 +212,11 @@ sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy      # reload não derruba os outros sites
 ```
 
-**Com Traefik**, a aplicação já está pronta para ser descoberta por labels —
-acrescente ao serviço `lista` no `docker-compose.yml`:
-
-```yaml
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.lista.rule: Host(`list.zanelatto.com`)
-      traefik.http.routers.lista.tls.certresolver: letsencrypt
-      traefik.http.services.lista.loadbalancer.server.port: "3000"
-```
-
-
-Com Nginx em vez de Caddy, use `deploy/nginx.conf` e o certbot:
+Com Nginx, o princípio é o mesmo (`deploy/nginx.conf` já usa
+`proxy_pass http://127.0.0.1:3000`): funciona direto quando o Nginx também
+roda fora de container. Se o Nginx estiver em container, ele precisa entrar
+na mesma rede do app — o mecanismo é igual ao do Traefik acima, trocando as
+labels por um `proxy_pass http://lista:3000` dentro do bloco `server`.
 
 ```sh
 sudo cp deploy/nginx.conf /etc/nginx/sites-available/lista-de-compras

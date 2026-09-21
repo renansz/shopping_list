@@ -44,3 +44,24 @@
 		}
 	}
 }
+
+# ---------------------------------------------------------------------------
+# Site adicional: cole este bloco no Caddyfile do proxy que já existe na VPS
+# (não neste arquivo) quando a aplicação estiver na mesma rede Docker dele —
+# veja deploy/docker-compose.shared-proxy.yml. "lista" é o nome do serviço no
+# docker-compose.yml, resolvido pela rede Docker interna; não use 127.0.0.1
+# aqui, pois de dentro de um container isso aponta para o próprio container.
+# ---------------------------------------------------------------------------
+#
+# list.zanelatto.com {
+# 	encode gzip
+# 	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#
+# 	reverse_proxy lista:3000 {
+# 		flush_interval -1
+# 		header_up X-Real-IP {remote_host}
+# 		transport http {
+# 			response_header_timeout 24h
+# 		}
+# 	}
+# }
