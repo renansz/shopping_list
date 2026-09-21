@@ -1,0 +1,19 @@
+services:
+  lista:
+    build: .
+    # Ou, se preferir apontar para uma imagem já publicada:
+    # image: ghcr.io/SEU-USUARIO/lista-de-compras:latest
+    container_name: lista-de-compras
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      TRUST_PROXY: "1"
+    ports:
+      # Só o proxy (Caddy/Nginx) precisa alcançar a aplicação.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - lista-dados:/data
+
+volumes:
+  lista-dados:

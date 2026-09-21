@@ -1,0 +1,38 @@
+# Instalação sem Docker, direto no systemd.
+#
+#   sudo cp deploy/lista-de-compras.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now lista-de-compras
+#
+# Ajuste User, WorkingDirectory e o caminho do node conforme a sua VPS.
+
+[Unit]
+Description=Lista de Compras da familia
+Documentation=https://github.com/renansz/shopping_list
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lista
+Group=lista
+WorkingDirectory=/opt/lista-de-compras
+EnvironmentFile=/opt/lista-de-compras/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=3
+
+# Endurecimento basico: o servico so escreve no diretorio de dados.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/lista-de-compras/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

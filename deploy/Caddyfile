@@ -1,0 +1,17 @@
+# Caddy resolve o HTTPS sozinho (Let's Encrypt) — e HTTPS e obrigatorio para o
+# app instalar no celular e para o service worker funcionar.
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+compras.seudominio.com.br {
+	encode gzip
+
+	# O stream de tempo real (SSE) nao pode ser bufferizado nem cortado.
+	reverse_proxy 127.0.0.1:3000 {
+		flush_interval -1
+		transport http {
+			response_header_timeout 24h
+		}
+	}
+}
