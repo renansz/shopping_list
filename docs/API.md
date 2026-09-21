@@ -107,7 +107,7 @@ Mande o cabeçalho `X-Client-Id` nas alterações para receber de volta o campo
 ## Exemplos com curl
 
 ```sh
-BASE=https://compras.seudominio.com.br
+BASE=https://list.zanelatto.com
 
 # entrar e guardar o cookie
 curl -s -c cookies.txt -X POST $BASE/api/login \

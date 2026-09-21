@@ -1,19 +1,69 @@
+# Sobe a aplicação. Duas formas:
+#
+#   docker compose up -d                    → só o app (use quando a VPS já tem
+#                                             um proxy/HTTPS na frente)
+#   docker compose --profile proxy up -d    → app + Caddy com HTTPS automático
+#                                             para list.zanelatto.com
+#
+# Antes: cp .env.example .env e defina HOUSEHOLD_PASSWORD.
+
 services:
   lista:
     build: .
-    # Ou, se preferir apontar para uma imagem já publicada:
-    # image: ghcr.io/SEU-USUARIO/lista-de-compras:latest
     container_name: lista-de-compras
     restart: unless-stopped
     env_file: .env
     environment:
       DATA_DIR: /data
+      # Faz o app confiar no X-Forwarded-Proto do proxy e marcar o cookie
+      # de sessão como Secure.
       TRUST_PROXY: "1"
+    expose:
+      - "3000"
     ports:
-      # Só o proxy (Caddy/Nginx) precisa alcançar a aplicação.
+      # Publicado só no localhost da VPS: quem fala com a internet é o proxy.
+      # Com o perfil "proxy", nem isso seria necessário — mantido para você
+      # poder testar com `curl localhost:3000` direto na máquina.
       - "127.0.0.1:3000:3000"
     volumes:
       - lista-dados:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: lista-caddy
+    restart: unless-stopped
+    profiles: ["proxy"]
+    depends_on:
+      - lista
+    environment:
+      DOMINIO: ${DOMINIO:-list.zanelatto.com}
+      # Dentro da rede do compose, o app atende pelo nome do serviço.
+      DESTINO: lista:3000
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Os certificados vivem aqui. Sem este volume, cada recriação do
+      # container pediria certificado de novo e bateria no limite da
+      # Let's Encrypt (5 por domínio por semana).
+      - caddy-dados:/data
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy
 
 volumes:
   lista-dados:
+  caddy-dados:
+  caddy-config:
+  caddy-logs:
