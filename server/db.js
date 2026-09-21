@@ -46,6 +46,38 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    // Sessao deixa de ser um cookie assinado com prazo fixo e passa a ser um
+    // registro no banco: assim da para revogar um aparelho especifico sem
+    // deslogar a casa inteira, e a sessao nao expira sozinha.
+    name: '002-sessoes-e-convites',
+    up(db) {
+      db.exec(`
+        CREATE TABLE invites (
+          id          TEXT PRIMARY KEY,
+          name        TEXT NOT NULL,
+          created_by  TEXT,
+          created_at  TEXT NOT NULL,
+          expires_at  TEXT NOT NULL,
+          used_at     TEXT,
+          revoked_at  TEXT
+        );
+
+        CREATE TABLE sessions (
+          id           TEXT PRIMARY KEY,
+          user_name    TEXT NOT NULL,
+          created_via  TEXT NOT NULL DEFAULT 'password',
+          invite_id    TEXT REFERENCES invites(id),
+          created_at   TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          revoked_at   TEXT,
+          revoked_reason TEXT
+        );
+
+        CREATE INDEX idx_sessions_revoked ON sessions (revoked_at);
+      `);
+    },
+  },
 ];
 
 export function openDatabase(file) {

@@ -10,6 +10,8 @@ export const ROUTES = {
   history: '#/historico',
   lists: '#/listas',
   about: '#/sobre',
+  access: '#/acessos',
+  enter: (token) => `#/entrar/${token}`,
 };
 
 export function parseRoute(hash = window.location.hash) {
@@ -17,9 +19,13 @@ export function parseRoute(hash = window.location.hash) {
   if (clean.startsWith('/lista/')) {
     return { name: 'list', listId: decodeURIComponent(clean.slice('/lista/'.length)) };
   }
+  if (clean.startsWith('/entrar/')) {
+    return { name: 'enter', inviteId: decodeURIComponent(clean.slice('/entrar/'.length)) };
+  }
   if (clean.startsWith('/historico')) return { name: 'history', listId: null };
   if (clean.startsWith('/listas')) return { name: 'lists', listId: null };
   if (clean.startsWith('/sobre')) return { name: 'about', listId: null };
+  if (clean.startsWith('/acessos')) return { name: 'access', listId: null };
   return { name: 'current', listId: null };
 }
 

@@ -43,8 +43,6 @@ export function readConfig(env = process.env) {
     dataDir,
     dbFile: env.DB_FILE ? path.resolve(env.DB_FILE) : path.join(dataDir, 'shopping.db'),
     password: env.HOUSEHOLD_PASSWORD || '',
-    sessionSecret: env.SESSION_SECRET || '',
-    sessionDays: int(env.SESSION_DAYS, 180),
     authDisabled: bool(env.AUTH_DISABLED, false),
     trustProxy: bool(env.TRUST_PROXY, false),
     cookieSecure: cookieSecureRaw === 'auto' ? 'auto' : bool(cookieSecureRaw, false),

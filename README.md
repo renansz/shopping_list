@@ -30,6 +30,10 @@ aparece na hora na tela dos outros.
 - **Sugestões do próprio histórico.** Ao digitar, o app sugere o que a casa já
   comprou antes.
 - **Quantidade e observação por item** (2 kg, 3 caixas, "a marca azul").
+- **Entrar por link, sem senha.** Quem já tem acesso gera um convite nomeado
+  no menu **Acessos** e manda pelo WhatsApp; a pessoa entra só de tocar. A
+  sessão não expira sozinha — só sai por logout ou se alguém revogar aquele
+  acesso específico.
 
 ## Como foi construído
 
@@ -112,8 +116,10 @@ Abra o endereço **https://** no navegador do celular e:
 - **Android (Chrome):** aparece o aviso *Instalar aplicativo*; se não aparecer,
   menu ⋮ → *Adicionar à tela inicial*.
 
-Cada pessoa entra uma vez com a senha da casa e escolhe o próprio nome — a
-sessão dura 180 dias, então ninguém precisa digitar senha toda hora.
+Cada pessoa entra uma vez — com a senha da casa, ou por um link de convite
+gerado no menu **Acessos** (sem senha nenhuma) — e escolhe o próprio nome. A
+sessão fica valendo indefinidamente; ninguém precisa entrar de novo, a menos
+que faça logout ou que o acesso seja revogado.
 
 ## Backup
 
@@ -138,11 +144,15 @@ Tudo por variáveis de ambiente (arquivo `.env`):
 | `PORT` | `3000` | Porta do servidor |
 | `HOST` | `0.0.0.0` | Interface de escuta |
 | `DATA_DIR` | `./data` | Onde fica o banco SQLite |
-| `SESSION_SECRET` | gerado | Assina o cookie; trocar desloga todo mundo |
-| `SESSION_DAYS` | `180` | Duração da sessão |
+| `PORTA_LOCAL` | `3000` | Só com Docker: porta publicada no localhost da VPS |
 | `TRUST_PROXY` | `0` | Use `1` atrás de Caddy/Nginx |
 | `COOKIE_SECURE` | `auto` | `auto`, `true` ou `false` |
 | `AUTH_DISABLED` | `0` | `1` desliga o login (só em desenvolvimento) |
+
+Sessões não têm mais um segredo para configurar: cada login vira um registro
+no próprio banco, revogável individualmente pela tela **Acessos** do app (ou
+todos de uma vez, com a senha da casa). Veja
+[docs/ARQUITETURA.md](docs/ARQUITETURA.md#sessão-e-convites).
 
 ## Estrutura
 

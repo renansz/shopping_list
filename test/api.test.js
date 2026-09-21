@@ -8,7 +8,6 @@ import { readConfig } from '../server/config.js';
 
 const config = readConfig({
   HOUSEHOLD_PASSWORD: 'senha-da-casa',
-  SESSION_SECRET: 'segredo-de-teste',
   DATA_DIR: './data',
   COOKIE_SECURE: 'false',
   PORT: '0',
@@ -22,32 +21,44 @@ async function startServer() {
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  let cookie = '';
-  async function call(method, path, body, options = {}) {
-    const response = await fetch(base + path, {
-      method,
-      headers: {
-        'content-type': 'application/json',
-        ...(cookie && options.noCookie !== true ? { cookie } : {}),
-        ...(options.headers || {}),
+  // Cada "cliente" tem seu proprio cookie - simula aparelhos diferentes
+  // falando com o mesmo servidor, para testar sessoes independentes.
+  function makeClient() {
+    let cookie = '';
+    async function call(method, path, body, options = {}) {
+      const response = await fetch(base + path, {
+        method,
+        headers: {
+          'content-type': 'application/json',
+          ...(cookie && options.noCookie !== true ? { cookie } : {}),
+          ...(options.headers || {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) cookie = setCookie.split(';')[0];
+      const type = response.headers.get('content-type') || '';
+      const data = type.includes('json') ? await response.json() : await response.text();
+      return { status: response.status, data, response };
+    }
+    return {
+      call,
+      cookie: () => cookie,
+      async login(name = 'renan') {
+        return call('POST', '/api/login', { name, password: 'senha-da-casa' });
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const setCookie = response.headers.get('set-cookie');
-    if (setCookie) cookie = setCookie.split(';')[0];
-    const type = response.headers.get('content-type') || '';
-    const data = type.includes('json') ? await response.json() : await response.text();
-    return { status: response.status, data, response };
+    };
   }
+
+  const primary = makeClient();
 
   return {
     base,
-    call,
+    call: primary.call,
     app,
-    cookie: () => cookie,
-    async login(name = 'renan') {
-      return call('POST', '/api/login', { name, password: 'senha-da-casa' });
-    },
+    cookie: primary.cookie,
+    login: primary.login,
+    secondClient: makeClient,
     async close() {
       app.close();
       server.close();
@@ -267,4 +278,133 @@ test('página do app e servida e rotas desconhecidas caem no SPA', async (t) => 
   const spa = await fetch(`${srv.base}/qualquer/rota`);
   assert.equal(spa.status, 200);
   assert.match(await spa.text(), /<div id="app"/);
+});
+
+test('convite: link nomeado deixa a pessoa entrar sem senha', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const criado = await srv.call('POST', '/api/invites', { name: 'Ana' });
+  assert.equal(criado.status, 201);
+  assert.match(criado.data.url, /\/#\/entrar\/inv_/);
+  const inviteId = criado.data.invite.id;
+  assert.ok(inviteId, 'o convite precisa vir com um id valido');
+
+  const ana = srv.secondClient();
+  const previa = await ana.call('GET', `/api/invites/${inviteId}`, undefined, { noCookie: true });
+  assert.deepEqual(previa.data, { valid: true, name: 'Ana' });
+
+  const entrada = await ana.call('POST', `/api/invites/${inviteId}/consume`, {}, { noCookie: true });
+  assert.equal(entrada.status, 200);
+  assert.equal(entrada.data.user.name, 'Ana');
+  assert.ok(ana.cookie(), 'o consumo do convite precisa devolver um cookie de sessao');
+
+  const eu = await ana.call('GET', '/api/me');
+  assert.equal(eu.data.user.name, 'Ana');
+});
+
+test('convite: abrir o link (GET) nao gasta - so o POST de confirmar gasta', async (t) => {
+  // Protege contra bots de previa (WhatsApp/Telegram buscam a URL sozinhos
+  // antes de alguem clicar); se o GET consumisse, o link chegaria morto.
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const { data } = await srv.call('POST', '/api/invites', { name: 'Ana' });
+  const id = data.invite.id;
+
+  for (let i = 0; i < 3; i += 1) {
+    const previa = await srv.call('GET', `/api/invites/${id}`, undefined, { noCookie: true });
+    assert.equal(previa.data.valid, true, `previa numero ${i + 1} deveria continuar valida`);
+  }
+
+  const ok = await srv.call('POST', `/api/invites/${id}/consume`, {}, { noCookie: true });
+  assert.equal(ok.status, 200);
+
+  const depois = await srv.call('GET', `/api/invites/${id}`, undefined, { noCookie: true });
+  assert.equal(depois.data.valid, false);
+
+  const segundaVez = await srv.call('POST', `/api/invites/${id}/consume`, {}, { noCookie: true });
+  assert.equal(segundaVez.status, 410);
+});
+
+test('convite invalido, expirado ou ja usado nao deixa entrar', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+
+  const inexistente = await srv.call('POST', '/api/invites/nao-existe/consume', {}, { noCookie: true });
+  assert.equal(inexistente.status, 410);
+
+  const previaInexistente = await srv.call('GET', '/api/invites/nao-existe', undefined, { noCookie: true });
+  assert.equal(previaInexistente.data.valid, false);
+});
+
+test('so quem esta logado pode gerar convite', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  const semLogin = await srv.call('POST', '/api/invites', { name: 'Ana' }, { noCookie: true });
+  assert.equal(semLogin.status, 401);
+});
+
+test('sessoes: lista os aparelhos logados e revoga um especifico', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+  const ana = srv.secondClient();
+  await ana.login('ana');
+
+  const lista = await srv.call('GET', '/api/sessions');
+  assert.equal(lista.data.sessions.length, 2);
+  const nomes = lista.data.sessions.map((s) => s.userName).sort();
+  assert.deepEqual(nomes, ['ana', 'renan']);
+
+  const sessaoDaAna = lista.data.sessions.find((s) => s.userName === 'ana');
+  const revogar = await srv.call('DELETE', `/api/sessions/${sessaoDaAna.id}`);
+  assert.equal(revogar.data.revoked, true);
+
+  // o aparelho da Ana perde acesso na hora, sem precisar fazer nada
+  const anaDepois = await ana.call('GET', '/api/me');
+  assert.equal(anaDepois.data.authenticated, false);
+  const anaRotaProtegida = await ana.call('GET', '/api/state');
+  assert.equal(anaRotaProtegida.status, 401);
+
+  // renan continua logado normalmente
+  const renanDepois = await srv.call('GET', '/api/me');
+  assert.equal(renanDepois.data.authenticated, true);
+});
+
+test('sessoes: reset geral derruba todo mundo e exige a senha da casa', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+  const ana = srv.secondClient();
+  await ana.login('ana');
+
+  const senhaErrada = await srv.call('POST', '/api/sessions/revoke-all', { password: 'chute' });
+  assert.equal(senhaErrada.status, 401);
+  // ninguem foi derrubado ainda
+  assert.equal((await ana.call('GET', '/api/me')).data.authenticated, true);
+
+  const reset = await srv.call('POST', '/api/sessions/revoke-all', { password: 'senha-da-casa' });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.data.revoked, 2);
+
+  assert.equal((await ana.call('GET', '/api/me')).data.authenticated, false);
+  assert.equal((await srv.call('GET', '/api/me')).data.authenticated, false);
+});
+
+test('logout revoga a sessao no servidor, nao so limpa o cookie', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+  const cookieAntigo = srv.cookie();
+
+  await srv.call('POST', '/api/logout');
+
+  // reaproveitar o mesmo cookie manualmente (como se alguem o tivesse
+  // roubado antes do logout) nao deve mais funcionar
+  const reuso = await fetch(`${srv.base}/api/me`, { headers: { cookie: cookieAntigo } });
+  const dados = await reuso.json();
+  assert.equal(dados.authenticated, false);
 });

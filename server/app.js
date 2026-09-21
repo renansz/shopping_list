@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store, ValidationError } from './store.js';
+import { SessionStore } from './sessions.js';
 import { EventHub } from './events.js';
 import {
   Router,
@@ -12,17 +13,7 @@ import {
   sendJson,
   sendText,
 } from './http.js';
-import {
-  LoginThrottle,
-  COOKIE_NAME,
-  checkPassword,
-  clearCookie,
-  createToken,
-  parseCookies,
-  resolveSecret,
-  sessionCookie,
-  verifyToken,
-} from './auth.js';
+import { LoginThrottle, COOKIE_NAME, checkPassword, clearCookie, parseCookies, sessionCookie } from './auth.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -59,9 +50,10 @@ function aplicarCabecalhosDeSeguranca(req, res, config) {
 
 export function createApp({ config, db }) {
   const store = new Store(db);
+  const sessions = new SessionStore(db);
   const hub = new EventHub();
-  const secret = resolveSecret(db, config.sessionSecret);
-  const throttle = new LoginThrottle();
+  const loginThrottle = new LoginThrottle();
+  const inviteThrottle = new LoginThrottle();
   const serveStatic = createStaticHandler(PUBLIC_DIR);
   const router = new Router();
 
@@ -88,13 +80,14 @@ export function createApp({ config, db }) {
       authenticated: Boolean(ctx.user),
       authRequired: !config.authDisabled,
       user: ctx.user ? { name: ctx.user.name } : null,
+      sessionId: ctx.sessionId,
       appName: config.appName,
     });
-  });
+  }, { public: true });
 
   router.post('/api/login', async (req, res, ctx) => {
     const ip = clientIp(req, config.trustProxy);
-    if (!throttle.check(ip)) {
+    if (!loginThrottle.check(ip)) {
       sendJson(res, 429, { error: 'Muitas tentativas. Espere alguns minutos.' });
       return;
     }
@@ -105,23 +98,106 @@ export function createApp({ config, db }) {
       return;
     }
     if (!config.authDisabled && !checkPassword(body.password, config.password)) {
-      throttle.fail(ip);
+      loginThrottle.fail(ip);
       sendJson(res, 401, { error: 'Senha incorreta.' });
       return;
     }
-    throttle.reset(ip);
-    const expiresAt = Date.now() + config.sessionDays * 24 * 60 * 60 * 1000;
-    const token = createToken({ name, iat: Date.now(), exp: expiresAt }, secret);
+    loginThrottle.reset(ip);
+    const session = sessions.createSession(name, { createdVia: 'password' });
     sendJson(
       res,
       200,
       { ok: true, user: { name } },
-      { 'set-cookie': sessionCookie(token, { secure: cookieSecureFor(req), days: config.sessionDays }) },
+      { 'set-cookie': sessionCookie(session.id, { secure: cookieSecureFor(req) }) },
     );
+  }, { public: true });
+
+  router.post('/api/logout', (req, res, ctx) => {
+    if (ctx.sessionId) sessions.revoke(ctx.sessionId, 'logout');
+    sendJson(res, 200, { ok: true }, { 'set-cookie': clearCookie({ secure: cookieSecureFor(req) }) });
+  }, { public: true });
+
+  /* --------------------------------------------------------- convites --- */
+
+  // Link nomeado, de uso unico: quem ja tem acesso gera um para uma pessoa
+  // (ou um novo aparelho dela) e manda por WhatsApp/SMS. Quem recebe entra so
+  // de confirmar - sem senha, sem digitar nome.
+  router.post('/api/invites', async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const invite = sessions.createInvite(body.name, { createdBy: ctx.user?.name ?? null });
+    const origin = `${isSecureRequest(req, config.trustProxy) ? 'https' : 'http'}://${req.headers.host}`;
+    sendJson(res, 201, { invite, url: `${origin}/#/entrar/${invite.id}` });
   });
 
-  router.post('/api/logout', (req, res) => {
-    sendJson(res, 200, { ok: true }, { 'set-cookie': clearCookie({ secure: cookieSecureFor(req) }) });
+  router.get('/api/invites', (req, res) => {
+    sendJson(res, 200, { invites: sessions.listInvites() });
+  });
+
+  router.delete('/api/invites/:id', (req, res, ctx) => {
+    const revoked = sessions.revokeInvite(ctx.params.id);
+    sendJson(res, 200, { revoked });
+  });
+
+  // Publica e so de LEITURA - nunca gasta o convite. Precisa ser assim porque
+  // WhatsApp/Telegram buscam a previa da URL sozinhos antes de alguem clicar;
+  // se o simples GET consumisse o link, ele chegaria morto para quem recebeu.
+  router.get('/api/invites/:id', (req, res, ctx) => {
+    sendJson(res, 200, sessions.getInvite(ctx.params.id));
+  }, { public: true });
+
+  // So aqui o convite e de fato gasto - sempre por uma acao explicita da
+  // pessoa (o app so chama isto quando ela toca em "Entrar como Fulano").
+  router.post('/api/invites/:id/consume', (req, res, ctx) => {
+    const ip = clientIp(req, config.trustProxy);
+    if (!inviteThrottle.check(ip)) {
+      sendJson(res, 429, { error: 'Muitas tentativas. Espere alguns minutos.' });
+      return;
+    }
+    let session;
+    try {
+      session = sessions.consumeInvite(ctx.params.id);
+    } catch (error) {
+      inviteThrottle.fail(ip);
+      throw error;
+    }
+    inviteThrottle.reset(ip);
+    sendJson(
+      res,
+      200,
+      { ok: true, user: { name: session.userName } },
+      { 'set-cookie': sessionCookie(session.id, { secure: cookieSecureFor(req) }) },
+    );
+  }, { public: true });
+
+  /* --------------------------------------------------------- sessões ---- */
+
+  // Cada aparelho logado vira uma linha aqui - "resetar os acessos" e
+  // revogar uma sessao especifica, sem precisar deslogar a casa inteira.
+  router.get('/api/sessions', (req, res, ctx) => {
+    const list = sessions.listActive().map((session) => ({
+      ...session,
+      isCurrent: session.id === ctx.sessionId,
+    }));
+    sendJson(res, 200, { sessions: list });
+  });
+
+  router.delete('/api/sessions/:id', (req, res, ctx) => {
+    const revoked = sessions.revoke(ctx.params.id, `revogado por ${ctx.user?.name ?? '?'}`);
+    const headers =
+      ctx.params.id === ctx.sessionId ? { 'set-cookie': clearCookie({ secure: cookieSecureFor(req) }) } : {};
+    sendJson(res, 200, { revoked }, headers);
+  });
+
+  // Reset geral: derruba todo mundo, inclusive quem pediu. Por ser
+  // destrutivo, exige a senha da casa de novo, nao so estar logado.
+  router.post('/api/sessions/revoke-all', async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    if (!config.authDisabled && !checkPassword(body.password, config.password)) {
+      sendJson(res, 401, { error: 'Senha incorreta.' });
+      return;
+    }
+    const count = sessions.revokeAll(`reset geral por ${ctx.user?.name ?? '?'}`);
+    sendJson(res, 200, { revoked: count }, { 'set-cookie': clearCookie({ secure: cookieSecureFor(req) }) });
   });
 
   /* --------------------------------------------------------- estado ---- */
@@ -318,8 +394,6 @@ export function createApp({ config, db }) {
 
   /* --------------------------------------------------------- handler ---- */
 
-  const PUBLIC_ROUTES = new Set(['/api/me', '/api/login', '/api/logout', '/api/health']);
-
   async function handler(req, res) {
     aplicarCabecalhosDeSeguranca(req, res, config);
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -338,25 +412,6 @@ export function createApp({ config, db }) {
         return;
       }
 
-      const cookies = parseCookies(req.headers.cookie || '');
-      const session = verifyToken(cookies[COOKIE_NAME], secret);
-      const user = session
-        ? { name: session.name }
-        : config.authDisabled
-          ? { name: 'Convidado' }
-          : null;
-      const ctx = {
-        url,
-        user,
-        params: {},
-        clientId: String(req.headers['x-client-id'] || ''),
-      };
-
-      if (!user && !PUBLIC_ROUTES.has(pathname)) {
-        sendJson(res, 401, { error: 'Entre com a senha da casa.' });
-        return;
-      }
-
       const match = router.match(method, pathname);
       if (!match) {
         sendJson(res, 404, { error: 'Rota não encontrada.' });
@@ -366,7 +421,36 @@ export function createApp({ config, db }) {
         sendJson(res, 405, { error: 'Método não permitido.' });
         return;
       }
-      ctx.params = match.params;
+
+      const cookies = parseCookies(req.headers.cookie || '');
+      const activeSession = sessions.getSession(cookies[COOKIE_NAME]);
+      const user = activeSession
+        ? { name: activeSession.userName }
+        : config.authDisabled
+          ? { name: 'Convidado' }
+          : null;
+      const ctx = {
+        url,
+        user,
+        params: match.params,
+        clientId: String(req.headers['x-client-id'] || ''),
+        sessionId: activeSession?.id ?? null,
+      };
+
+      if (!user && !match.public) {
+        sendJson(res, 401, { error: 'Entre com a senha da casa.' });
+        return;
+      }
+
+      // Sessao renovada a cada visita: o cookie so tem prazo por limite do
+      // proprio navegador (ver auth.js), na pratica nao expira sozinho para
+      // quem usa o app com alguma frequencia. Rotas publicas que emitem seu
+      // proprio cookie (login, convite) sobrescrevem isto na resposta.
+      if (ctx.sessionId) {
+        sessions.touchSession(ctx.sessionId);
+        res.setHeader('set-cookie', sessionCookie(ctx.sessionId, { secure: cookieSecureFor(req) }));
+      }
+
       try {
         await match.handler(req, res, ctx);
       } catch (error) {

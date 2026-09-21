@@ -1,15 +1,22 @@
 # Referência da API
 
 Tudo devolve JSON. Todas as rotas exigem a sessão (cookie `sl_session`), exceto
-`/api/health`, `/api/me`, `/api/login` e `/api/logout`.
+`/api/health`, `/api/me`, `/api/login`, `/api/logout` e as duas rotas de
+convite (`GET`/`POST /api/invites/:id...`) — essas existem justamente para
+funcionar sem sessão prévia.
 
 Erros vêm no formato `{ "error": "mensagem em português" }` com o status HTTP
 apropriado: `400` dado inválido, `401` sem sessão, `403` origem não permitida,
 `404` não encontrado, `409` regra de negócio (ex.: editar lista finalizada),
-`429` excesso de tentativas de login, `500` erro interno.
+`410` convite inválido/expirado/já usado, `429` excesso de tentativas,
+`500` erro interno.
 
 Requisições que alteram dados precisam de `Content-Type: application/json` e,
 quando o navegador manda `Origin`, ele precisa bater com o host.
+
+A sessão não expira por tempo: o cookie é renovado a cada requisição
+autenticada (`Max-Age` de 400 dias, o teto que os navegadores aceitam) e só
+para de valer por logout ou revogação — ver `/api/sessions` abaixo.
 
 ## Sessão
 
@@ -17,8 +24,37 @@ quando o navegador manda `Origin`, ele precisa bater com o host.
 | --- | --- | --- |
 | `GET` | `/api/me` | Diz se há sessão e quem é |
 | `POST` | `/api/login` | `{ name, password }` → cria a sessão |
-| `POST` | `/api/logout` | Encerra a sessão |
+| `POST` | `/api/logout` | Encerra a sessão (revoga no servidor, não só limpa o cookie) |
 | `GET` | `/api/health` | `{ ok: true, uptime }` para monitoramento |
+
+## Convites (link mágico)
+
+Quem já tem acesso gera um link nomeado para outra pessoa entrar sem senha.
+Abrir o link (`GET`) nunca gasta o convite — só o `POST` de confirmar gasta.
+Isso é proposital: WhatsApp, Telegram e iMessage buscam a URL sozinhos para
+montar a prévia, antes de qualquer humano clicar; se o `GET` consumisse,
+o link chegaria morto para quem recebeu.
+
+| Método | Rota | Sessão? | O que faz |
+| --- | --- | --- | --- |
+| `POST` | `/api/invites` | sim | `{ name }` → cria o convite, devolve `{ invite, url }` |
+| `GET` | `/api/invites` | sim | Lista os convites pendentes (não usados, não expirados) |
+| `DELETE` | `/api/invites/:id` | sim | Cancela um convite ainda não usado |
+| `GET` | `/api/invites/:id` | não | Só consulta: `{ valid: true, name }` ou `{ valid: false, reason }` |
+| `POST` | `/api/invites/:id/consume` | não | Gasta o convite, cria a sessão, devolve `{ ok, user }` |
+
+O convite vale por 7 dias e é de uso único.
+
+## Acessos (sessões ativas)
+
+| Método | Rota | O que faz |
+| --- | --- | --- |
+| `GET` | `/api/sessions` | Lista os aparelhos com acesso: nome, como entrou, último uso |
+| `DELETE` | `/api/sessions/:id` | Revoga um aparelho específico — efeito imediato |
+| `POST` | `/api/sessions/revoke-all` | `{ password }` → revoga todos, inclusive quem pediu |
+
+`revoke-all` exige a senha da casa de novo (não basta estar logado), por ser
+destrutivo: derruba a família inteira de uma vez.
 
 ## Estado e listas
 
@@ -125,4 +161,12 @@ curl -s -b cookies.txt -X POST $BASE/api/lists/$LISTA/items \
 
 # acompanhar as alterações em tempo real
 curl -N -b cookies.txt $BASE/api/events
+
+# gerar um convite para a Ana entrar sem senha (usa o cookie do Renan acima)
+curl -s -b cookies.txt -X POST $BASE/api/invites \
+  -H 'content-type: application/json' -d '{"name":"Ana"}'
+# -> devolve {"invite":{...},"url":"https://.../#/entrar/inv_..."}; mande o url por WhatsApp
+
+# a Ana confirma o convite (nenhum cookie prévio, guarda o dela em cookies-ana.txt)
+curl -s -c cookies-ana.txt -X POST $BASE/api/invites/SEU_INVITE_ID/consume -d '{}'
 ```

@@ -1,5 +1,5 @@
 /** Telas e componentes visuais. */
-import { el, icon, formatDate, formatRelative, plural, hostOf } from './dom.js';
+import { el, clear, icon, formatDate, formatRelative, plural, hostOf } from './dom.js';
 import { confirmSheet, emptyState, field, sheet, toast } from './ui.js';
 import * as actions from './actions.js';
 import { prefs, setPref, state } from './state.js';
@@ -61,6 +61,57 @@ export function loginScreen({ onDone }) {
       el('h1', { text: 'Lista de Compras' }),
       el('p', { class: 'sub', text: 'A lista da família, sempre atualizada.' }),
       form,
+    ]),
+  ]);
+}
+
+/* ---------------------------------------------------- entrar por convite --- */
+
+// Tela do link magico (#/entrar/<id>). So mostra "Entrar como Fulano?" -
+// o convite so e gasto quando a pessoa toca no botao (nunca so por abrir
+// o link, o que protegeria contra bots de previa do WhatsApp/Telegram).
+export function enterInviteScreen({ inviteId, preview, onDone }) {
+  const content = [];
+
+  if (!preview) {
+    content.push(el('p', { class: 'sub', text: 'Verificando o convite...' }));
+  } else if (!preview.valid) {
+    content.push(
+      el('p', { class: 'error', text: preview.reason || 'Este convite não é mais válido.' }),
+      el('a', { class: 'btn btn--primary btn--block', href: '#/', text: 'Ir para o login com senha' }),
+    );
+  } else {
+    const button = el(
+      'button',
+      {
+        class: 'btn btn--primary btn--block',
+        onClick: async () => {
+          button.disabled = true;
+          button.textContent = 'Entrando...';
+          try {
+            await actions.consumeInvite(inviteId);
+            localStorage.setItem('sl_last_name', preview.name);
+            onDone();
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = `Entrar como ${preview.name}`;
+            toast(error.message || 'Não consegui entrar com este convite.', { type: 'error' });
+          }
+        },
+      },
+      [`Entrar como ${preview.name}`],
+    );
+    content.push(
+      el('p', { class: 'sub', text: `Você foi convidado por alguém da família para entrar como ${preview.name}.` }),
+      button,
+    );
+  }
+
+  return el('div', { class: 'login' }, [
+    el('div', { class: 'login__box' }, [
+      el('img', { class: 'login__logo', src: '/icons/icon.svg', alt: '' }),
+      el('h1', { text: 'Lista de Compras' }),
+      ...content,
     ]),
   ]);
 }
@@ -494,4 +545,203 @@ export function listsScreen(lists, { emptyTitle, emptyText, emptyIcon = 'lists' 
     return el('div', { class: 'card' }, [emptyState(emptyIcon, emptyTitle, emptyText)]);
   }
   return el('div', { class: 'card' }, lists.map(listCard));
+}
+
+/* ------------------------------------------------------------ acessos --- */
+
+// Link nomeado, de uso unico: gera aqui e manda por WhatsApp/SMS. Quem
+// recebe entra so de tocar em "Entrar como Fulano" - sem senha.
+export function createInviteFlow() {
+  sheet((close) => {
+    const nameInput = el('input', { class: 'input', type: 'text', placeholder: 'Ex.: Ana' });
+    const form = el('div', { class: 'sheet__form' }, [field('Nome de quem vai usar o convite', nameInput)]);
+    const resultBox = el('div', { hidden: true });
+
+    const gerar = el('button', { class: 'btn btn--primary btn--block', text: 'Gerar link', onClick: onGerar });
+
+    async function onGerar() {
+      const name = nameInput.value.trim();
+      if (!name) {
+        toast('Diga o nome de quem vai usar o convite.', { type: 'error' });
+        return;
+      }
+      gerar.disabled = true;
+      gerar.textContent = 'Gerando...';
+      try {
+        const { url } = await actions.createInvite(name);
+        actions.loadInvites().catch(() => {});
+        form.hidden = true;
+        gerar.hidden = true;
+        clear(resultBox);
+        resultBox.hidden = false;
+        const linkField = el('input', { class: 'input', type: 'text', value: url, readonly: true });
+        const copiar = async () => {
+          linkField.select();
+          try {
+            await navigator.clipboard.writeText(url);
+            toast('Link copiado.');
+          } catch {
+            // sem permissao de clipboard: a pessoa copia manualmente do campo selecionado
+          }
+        };
+        resultBox.append(
+          el('p', {
+            class: 'sheet__desc',
+            text: `Mande este link para ${name}. Ela entra só de tocar, sem senha — vale 7 dias ou até ser usado uma vez.`,
+          }),
+          linkField,
+          el(
+            'div',
+            { class: 'btnrow', style: { marginTop: '10px' } },
+            [
+              el('button', { class: 'btn', onClick: copiar }, [icon('copy'), 'Copiar link']),
+              navigator.share
+                ? el(
+                    'button',
+                    {
+                      class: 'btn btn--primary',
+                      onClick: () =>
+                        navigator
+                          .share({ title: 'Lista de Compras', text: `Entre na nossa lista de compras: ${url}` })
+                          .catch(() => {}),
+                    },
+                    ['Compartilhar'],
+                  )
+                : null,
+            ].filter(Boolean),
+          ),
+        );
+      } catch (error) {
+        gerar.disabled = false;
+        gerar.textContent = 'Gerar link';
+        toast(error.message || 'Não consegui gerar o convite.', { type: 'error' });
+      }
+    }
+
+    return [
+      el('h2', { class: 'sheet__title', text: 'Convidar alguém' }),
+      el('p', {
+        class: 'sheet__desc',
+        text: 'Gere um link e mande pelo WhatsApp — a pessoa entra sem digitar senha nem nome.',
+      }),
+      form,
+      gerar,
+      resultBox,
+    ];
+  });
+}
+
+export function sessionsScreen() {
+  const container = el('div', {});
+
+  async function revogarSessao(session) {
+    const ok = await confirmSheet({
+      title: session.isCurrent ? 'Sair deste aparelho?' : `Revogar acesso de ${session.userName}?`,
+      description: session.isCurrent
+        ? 'Você vai precisar entrar de novo.'
+        : 'Esse aparelho perde acesso na hora, sem precisar avisar ninguém.',
+      confirmLabel: session.isCurrent ? 'Sair' : 'Revogar',
+      danger: true,
+    });
+    if (!ok) return;
+    await actions.revokeSession(session.id);
+    // A propria sessao ja saiu (o cookie foi limpo pelo servidor): so recarregar.
+    // A de outro aparelho: so atualizar a lista, sem afetar quem esta usando aqui.
+    if (session.isCurrent) window.location.reload();
+    else actions.loadSessions().catch(() => {});
+  }
+
+  const sessionRows = state.sessions.map((session) =>
+    el('div', { class: 'listcard' }, [
+      el('div', { class: 'listcard__main' }, [
+        el(
+          'div',
+          { class: 'listcard__name' },
+          [
+            el('span', { text: session.userName }),
+            session.isCurrent ? el('span', { class: 'badge badge--current', text: 'este aparelho' }) : null,
+          ].filter(Boolean),
+        ),
+        el('div', {
+          class: 'listcard__meta',
+          text: `${session.createdVia === 'invite' ? 'entrou por convite' : 'entrou com a senha'} · ativo ${formatRelative(session.lastSeenAt)}`,
+        }),
+      ]),
+      el(
+        'button',
+        {
+          class: 'iconbtn',
+          style: { color: 'var(--danger)' },
+          'aria-label': session.isCurrent ? 'Sair deste aparelho' : `Revogar acesso de ${session.userName}`,
+          onClick: () => revogarSessao(session),
+        },
+        [icon(session.isCurrent ? 'logout' : 'trash')],
+      ),
+    ]),
+  );
+
+  container.append(
+    el(
+      'div',
+      { class: 'card' },
+      sessionRows.length ? sessionRows : [emptyState('users', 'Nenhum acesso ativo', '')],
+    ),
+  );
+
+  if (state.invites.length > 0) {
+    const cancelarConvite = async (invite) => {
+      await actions.revokeInvite(invite.id);
+      toast('Convite cancelado.');
+    };
+    container.append(
+      el('p', { class: 'section-title', text: 'Convites pendentes' }),
+      el(
+        'div',
+        { class: 'card' },
+        state.invites.map((invite) =>
+          el('div', { class: 'listcard' }, [
+            el('div', { class: 'listcard__main' }, [
+              el('div', { class: 'listcard__name', text: invite.name }),
+              el('div', { class: 'listcard__meta', text: `convite pendente · expira ${formatDate(invite.expiresAt)}` }),
+            ]),
+            el(
+              'button',
+              { class: 'iconbtn', 'aria-label': `Cancelar convite de ${invite.name}`, onClick: () => cancelarConvite(invite) },
+              [icon('x')],
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  container.append(
+    el('div', { class: 'btnrow', style: { marginTop: '16px' } }, [
+      el('button', { class: 'btn btn--danger btn--block', onClick: revokeAllFlow }, [
+        icon('logout'),
+        'Encerrar todas as sessões',
+      ]),
+    ]),
+  );
+
+  return container;
+}
+
+async function revokeAllFlow() {
+  const resultado = await confirmSheet({
+    title: 'Encerrar todas as sessões?',
+    description: 'Todo mundo (inclusive você) precisa entrar de novo. Confirme com a senha da casa.',
+    confirmLabel: 'Encerrar tudo',
+    danger: true,
+    extra: () => {
+      const input = el('input', { class: 'input', type: 'password', id: 'revoke-all-password', placeholder: 'Senha da casa' });
+      return { node: field('Senha da casa', input), getValue: () => ({ password: input.value }) };
+    },
+  });
+  if (!resultado) return;
+  try {
+    await actions.revokeAllSessions(resultado.password);
+  } catch (error) {
+    toast(error.message || 'Senha incorreta.', { type: 'error' });
+  }
 }
