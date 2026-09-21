@@ -22,8 +22,9 @@ server/
   db.js        abre o SQLite e roda as migrações
   store.js     as regras do produto (o coração)
   app.js       rotas da API, sessão e transmissão dos eventos
-  http.js      roteador, arquivos estáticos, helpers de requisição
-  auth.js      cookie assinado, senha da casa, limite de tentativas
+  http.js      roteador (com suporte a rota pública), estáticos, requisição
+  auth.js      cookie de sessão, senha da casa, limite de tentativas
+  sessions.js  sessão no banco e convites (link mágico)
   events.js    hub de Server-Sent Events
 
 public/
@@ -113,20 +114,47 @@ fila travaria para sempre.
 Na tela, tudo é otimista: marcar um item pinta na hora e só depois confirma com
 o servidor; se der erro, volta ao estado anterior e aparece um aviso.
 
-## Sessão
+## Sessão e convites
 
 Uma senha para a casa inteira (`HOUSEHOLD_PASSWORD`) e um nome por pessoa, que
-serve só para mostrar quem pediu e quem comprou cada item. Não há cadastro,
-e-mail nem recuperação de senha — para cinco pessoas, isso seria burocracia.
+serve só para mostrar quem pediu e quem comprou cada item. Não há cadastro nem
+e-mail — para uma família, isso seria burocracia. Existem dois jeitos de
+entrar:
 
-O cookie é um JSON assinado com HMAC-SHA256 (`sl_session`), `HttpOnly`,
-`SameSite=Lax` e `Secure` quando o acesso é HTTPS. O segredo vem do `.env` ou,
-se ausente, é gerado e guardado na tabela `settings` na primeira subida.
+- **Senha da casa** — o caminho de sempre, e o único que funciona quando
+  ninguém mais tem acesso (recuperação).
+- **Convite (link mágico)** — quem já está dentro gera, no menu **Acessos**,
+  um link nomeado ("convite para a Ana") e manda por WhatsApp. Abrir o link
+  mostra só "Entrar como Ana?"; a pessoa toca e entra, sem senha e sem digitar
+  o próprio nome. O convite vale por 7 dias e se gasta no primeiro uso.
+
+  Abrir o link e usá-lo são coisas propositalmente separadas: WhatsApp,
+  Telegram e iMessage buscam a URL sozinhos para montar a prévia, antes de
+  qualquer humano clicar. Se o simples `GET` consumisse o convite, ele
+  chegaria morto para quem recebeu — por isso `GET /api/invites/:id` é só
+  leitura (pode ser chamado várias vezes) e o convite só é gasto num `POST`
+  explícito, que a interface só dispara quando a pessoa toca no botão.
+
+**Sessão vira registro no banco**, não mais um cookie com prazo embutido:
+tabelas `sessions` e `invites` (migração `002`). Isso troca uma expiração por
+tempo fixo por uma revogação explícita — exatamente o que a família pediu
+("só sair por logout ou reset"). O cookie carrega só um token opaco de 256
+bits (sem HMAC: a própria entropia já o torna imprevisível, e o servidor faz
+a busca por chave primária); a cada requisição autenticada, a sessão é
+"tocada" (`last_seen_at` atualizado) e o cookie é reemitido com `Max-Age` de
+400 dias — o teto que os navegadores aceitam — o que na prática nunca expira
+para quem usa o app com alguma regularidade.
+
+A tela **Acessos** lista cada sessão ativa (nome, como entrou, último uso) com
+um botão para revogar uma por uma, mais um "encerrar todas" que exige a senha
+da casa de novo, por ser destrutivo (desloga todo mundo, inclusive quem
+pediu).
 
 Proteções: comparação de senha em tempo constante, limite de 10 tentativas por
-IP a cada 10 minutos, conferência de `Origin` em toda requisição que altera
-dados, corpo limitado a 1 MB e links restritos a `http`/`https` (nada de
-`javascript:` virando item clicável).
+IP a cada 10 minutos (login e consumo de convite têm contadores separados),
+conferência de `Origin` em toda requisição que altera dados, corpo limitado a
+1 MB e links de item restritos a `http`/`https` (nada de `javascript:`
+virando item clicável).
 
 ## Front-end sem framework
 
@@ -159,8 +187,12 @@ npm test
 
 - `test/store.test.js` — as regras: lista atual garantida, finalizar levando
   pendências, lista finalizada que não aceita edição, sugestões, cópia.
+- `test/sessoes.test.js` — sessão e convite isolados: revogação, expiração,
+  uso único, prévia que nunca consome.
 - `test/api.test.js` — sobe o servidor de verdade e exercita as rotas,
-  incluindo login, CSRF e um cliente SSE recebendo evento de outro aparelho.
+  incluindo login, convite ponta a ponta (dois "aparelhos" com cookies
+  independentes), revogação em tempo real, reset geral e um cliente SSE
+  recebendo evento de outro aparelho.
 - `test/rotas.test.js` — o roteador do navegador.
 
 Todos usam `node:test` e SQLite em memória; não precisam de rede nem de banco

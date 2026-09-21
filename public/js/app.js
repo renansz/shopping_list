@@ -15,12 +15,15 @@ import {
   subscribe,
 } from './state.js';
 import {
+  createInviteFlow,
+  enterInviteScreen,
   finishListFlow,
   itemsCard,
   listMenuSheet,
   listsScreen,
   loginScreen,
   newListFlow,
+  sessionsScreen,
   statusDots,
   topbar,
 } from './views.js';
@@ -208,6 +211,22 @@ function paint() {
   const scrollY = window.scrollY;
   clear(root);
 
+  // Link de convite: tela propria, funciona antes de qualquer login.
+  if (!state.authenticated && state.route.name === 'enter') {
+    composer.hide();
+    root.append(
+      enterInviteScreen({
+        inviteId: state.route.inviteId,
+        preview: state.invitePreview,
+        onDone: async () => {
+          await start();
+          go(ROUTES.current);
+        },
+      }),
+    );
+    return;
+  }
+
   if (!state.authenticated) {
     composer.hide();
     root.append(loginScreen({ onDone: start }));
@@ -263,6 +282,24 @@ function paint() {
   } else if (route.name === 'about') {
     root.append(topbar({ title: 'Sobre', subtitle: [], leading: backButton(), onMenu: openDrawer }));
     main.append(aboutCard());
+    composer.hide();
+  } else if (route.name === 'access') {
+    root.append(
+      topbar({
+        title: 'Acessos',
+        subtitle: [plural(state.sessions.length, 'aparelho conectado', 'aparelhos conectados')],
+        leading: backButton(),
+        onMenu: openDrawer,
+        actionsSlot: [
+          el(
+            'button',
+            { class: 'iconbtn', 'aria-label': 'Convidar alguém', onClick: () => createInviteFlow() },
+            [icon('plus')],
+          ),
+        ],
+      }),
+    );
+    main.append(sessionsScreen());
     composer.hide();
   } else {
     paintList(main, route);
@@ -428,6 +465,7 @@ function openDrawer() {
           ),
         ]),
         el('li', {}, [nav('clock', 'Histórico', ROUTES.history, state.historyCount, route.name === 'history')]),
+        el('li', {}, [nav('users', 'Acessos', ROUTES.access, null, route.name === 'access')]),
         el('li', {}, [nav('plus', 'Nova lista', () => newListFlow())]),
       ]),
     ]);
@@ -494,10 +532,26 @@ function openDrawer() {
 
 /* ------------------------------------------------------ inicialização -- */
 
+async function loadInvitePreview(inviteId) {
+  try {
+    const preview = await actions.previewInvite(inviteId);
+    setState({ invitePreview: preview });
+  } catch (error) {
+    setState({ invitePreview: { valid: false, reason: error.message || 'Não consegui verificar o convite.' } });
+  }
+}
+
 async function handleRoute() {
   const route = parseRoute();
   setState({ route });
-  if (route.name === 'list' && route.listId) {
+  if (route.name === 'enter') {
+    // Já logado e abriu um link de convite: nada a fazer aqui, so seguir usando.
+    if (state.authenticated) {
+      go(ROUTES.current);
+      return;
+    }
+    await loadInvitePreview(route.inviteId);
+  } else if (route.name === 'list' && route.listId) {
     if (state.viewing?.id !== route.listId) {
       const known = state.openLists.find((list) => list.id === route.listId);
       setState({ viewing: known ? { ...known, items: [] } : null });
@@ -511,6 +565,8 @@ async function handleRoute() {
     await actions.loadHistory().catch(() => {});
   } else if (route.name === 'lists') {
     await actions.loadOpenLists().catch(() => {});
+  } else if (route.name === 'access') {
+    await Promise.all([actions.loadSessions().catch(() => {}), actions.loadInvites().catch(() => {})]);
   } else if (route.name === 'current' && state.current) {
     setState({ viewing: state.current });
   }
@@ -571,6 +627,9 @@ async function boot() {
   subscribe(render);
   api.outbox.onChange(render);
   onRouteChange(handleRoute);
+  // Le a rota da URL ja na abertura - antes de saber se ha sessao - para um
+  // link de convite (#/entrar/...) ser reconhecido mesmo sem login ainda.
+  setState({ route: parseRoute() });
 
   window.addEventListener('online', () => {
     setState({ online: true });
@@ -590,8 +649,12 @@ async function boot() {
 
   try {
     const me = await actions.checkSession();
-    if (me.authenticated) await start();
-    else render();
+    if (me.authenticated) {
+      await start();
+    } else {
+      if (state.route.name === 'enter') await loadInvitePreview(state.route.inviteId);
+      render();
+    }
   } catch {
     const snapshot = loadSnapshot();
     if (snapshot?.current) {

@@ -281,8 +281,10 @@ Abra `https://list.zanelatto.com` no celular:
 - **Android:** o Chrome mostra *Instalar aplicativo*. Se não mostrar, menu ⋮ →
   *Adicionar à tela inicial*.
 
-Cada pessoa entra com a senha da casa e escolhe o próprio nome. A sessão dura
-180 dias (`SESSION_DAYS`).
+Cada pessoa entra com a senha da casa (ou por um link de convite gerado no
+menu **Acessos** — sem senha nenhuma) e escolhe o próprio nome. A sessão não
+expira sozinha: só sai por logout, ou se alguém revogar aquele acesso na
+tela **Acessos**.
 
 ## 7. Backup e restauração
 
@@ -347,7 +349,6 @@ buscarem a versão nova em vez da guardada em cache.
 | "A porta 3000 já está em uso" | `sudo ss -lptn 'sport = :3000'` |
 | Itens não aparecem sozinhos | Proxy bufferizando `/api/events`: teste com o `curl -N` da seção 5 |
 | Não instala como app no celular | Só funciona em HTTPS, e no Safari (iOS) ou Chrome (Android) |
-| Some a sessão toda hora | `SESSION_SECRET` mudando a cada subida — fixe no `.env` |
 | Cookie não fica salvo | Falta `TRUST_PROXY=1` (o compose já define) |
 | "HOUSEHOLD_PASSWORD não definida" | O `.env` não foi criado a partir do `.env.example` |
 | App abre com dados antigos | Cache do service worker: suba o `SHELL_VERSION` em `public/sw.js` |

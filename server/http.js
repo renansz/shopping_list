@@ -169,7 +169,7 @@ export class Router {
     this.routes = [];
   }
 
-  add(method, pattern, handler) {
+  add(method, pattern, handler, { public: isPublic = false } = {}) {
     const keys = [];
     const regex = new RegExp(
       `^${pattern
@@ -183,15 +183,17 @@ export class Router {
         })
         .join('/')}$`,
     );
-    this.routes.push({ method, regex, keys, handler });
+    this.routes.push({ method, regex, keys, handler, public: isPublic });
     return this;
   }
 
-  get(pattern, handler) { return this.add('GET', pattern, handler); }
-  post(pattern, handler) { return this.add('POST', pattern, handler); }
-  patch(pattern, handler) { return this.add('PATCH', pattern, handler); }
-  put(pattern, handler) { return this.add('PUT', pattern, handler); }
-  delete(pattern, handler) { return this.add('DELETE', pattern, handler); }
+  // options.public marca uma rota que dispensa sessao (login, convites) -
+  // suporta padroes com :parametro, o que um Set de caminhos literais nao faria.
+  get(pattern, handler, options) { return this.add('GET', pattern, handler, options); }
+  post(pattern, handler, options) { return this.add('POST', pattern, handler, options); }
+  patch(pattern, handler, options) { return this.add('PATCH', pattern, handler, options); }
+  put(pattern, handler, options) { return this.add('PUT', pattern, handler, options); }
+  delete(pattern, handler, options) { return this.add('DELETE', pattern, handler, options); }
 
   match(method, pathname) {
     let pathMatched = false;
@@ -204,7 +206,7 @@ export class Router {
       route.keys.forEach((key, index) => {
         params[key] = decodeURIComponent(found[index + 1]);
       });
-      return { handler: route.handler, params };
+      return { handler: route.handler, params, public: route.public };
     }
     return pathMatched ? { methodMismatch: true } : null;
   }

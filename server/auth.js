@@ -1,47 +1,13 @@
 import crypto from 'node:crypto';
-import { getSetting, setSetting } from './db.js';
 
 const COOKIE_NAME = 'sl_session';
 
-export function resolveSecret(db, configured) {
-  if (configured) return configured;
-  const stored = getSetting(db, 'session_secret');
-  if (stored) return stored;
-  const generated = crypto.randomBytes(32).toString('hex');
-  setSetting(db, 'session_secret', generated);
-  return generated;
-}
-
-function b64url(buffer) {
-  return Buffer.from(buffer).toString('base64url');
-}
-
-function sign(value, secret) {
-  return crypto.createHmac('sha256', secret).update(value).digest('base64url');
-}
-
-export function createToken(payload, secret) {
-  const body = b64url(JSON.stringify(payload));
-  return `${body}.${sign(body, secret)}`;
-}
-
-export function verifyToken(token, secret) {
-  if (typeof token !== 'string' || !token.includes('.')) return null;
-  const index = token.lastIndexOf('.');
-  const body = token.slice(0, index);
-  const signature = token.slice(index + 1);
-  const expected = sign(body, secret);
-  const a = Buffer.from(signature);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
-    if (typeof payload.exp === 'number' && payload.exp < Date.now()) return null;
-    return payload;
-  } catch {
-    return null;
-  }
-}
+// Chrome (e outros navegadores modernos) recusam Max-Age acima de 400 dias
+// em qualquer cookie - e o valor mais alto que da para pedir. A sessao em si
+// nao expira (so por logout ou revogacao, ver server/sessions.js); o cookie
+// e renovado a cada visita, entao esse teto nunca aparece na pratica para
+// quem usa o app com alguma regularidade.
+const COOKIE_MAX_AGE_DAYS = 400;
 
 export function checkPassword(given, expected) {
   // Compara hashes de tamanho fixo para o tempo de resposta não vazar a senha.
@@ -66,11 +32,11 @@ export function parseCookies(header = '') {
   return jar;
 }
 
-export function sessionCookie(token, { secure, days }) {
-  const maxAge = Math.max(days, 1) * 24 * 60 * 60;
+export function sessionCookie(sessionId, { secure }) {
+  const maxAge = COOKIE_MAX_AGE_DAYS * 24 * 60 * 60;
   const flags = ['Path=/', `Max-Age=${maxAge}`, 'HttpOnly', 'SameSite=Lax'];
   if (secure) flags.push('Secure');
-  return `${COOKIE_NAME}=${encodeURIComponent(token)}; ${flags.join('; ')}`;
+  return `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; ${flags.join('; ')}`;
 }
 
 export function clearCookie({ secure }) {
@@ -81,7 +47,7 @@ export function clearCookie({ secure }) {
 
 export { COOKIE_NAME };
 
-/** Limitador simples de tentativas de login, por IP, em memória. */
+/** Limitador simples de tentativas de login/convite, por IP, em memória. */
 export class LoginThrottle {
   constructor({ max = 10, windowMs = 10 * 60 * 1000 } = {}) {
     this.max = max;

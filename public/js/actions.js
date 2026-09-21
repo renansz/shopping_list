@@ -51,6 +51,65 @@ export async function logout() {
   window.location.reload();
 }
 
+/* --------------------------------------------------- convites (magic link) --- */
+
+// So consulta - nunca gasta o convite (seguro contra bots de previa do
+// WhatsApp/Telegram, que buscam a URL sozinhos antes de alguem clicar).
+export async function previewInvite(id) {
+  return api.get(`/api/invites/${id}`);
+}
+
+// So chamado quando a pessoa toca em "Entrar como Fulano" - uma acao
+// explicita dela, nunca automatica.
+export async function consumeInvite(id) {
+  const result = await api.post(`/api/invites/${id}/consume`, {}, { queue: false });
+  setState({ authenticated: true, user: result.user });
+  return result;
+}
+
+export async function createInvite(name) {
+  const result = await api.post('/api/invites', { name }, { queue: false });
+  return result;
+}
+
+export async function loadInvites() {
+  const result = await api.get('/api/invites');
+  setState({ invites: result.invites });
+  return result.invites;
+}
+
+export async function revokeInvite(id) {
+  await api.del(`/api/invites/${id}`, { queue: false });
+  await loadInvites();
+}
+
+/* ------------------------------------------------------------ acessos --- */
+
+export async function loadSessions() {
+  const result = await api.get('/api/sessions');
+  setState({ sessions: result.sessions });
+  return result.sessions;
+}
+
+// Nao recarrega a lista sozinho: se for a propria sessao, o cookie ja foi
+// limpo pelo servidor e um refresh em seguida so daria 401 - quem chama
+// decide entre recarregar a pagina (saiu do proprio aparelho) ou so
+// atualizar a lista (revogou outro aparelho).
+export async function revokeSession(id) {
+  return api.del(`/api/sessions/${id}`, { queue: false });
+}
+
+// Derruba todo mundo, inclusive quem pediu - por isso exige a senha da casa
+// de novo, nao so estar logado.
+export async function revokeAllSessions(password) {
+  const result = await api.post('/api/sessions/revoke-all', { password }, { queue: false });
+  if (result.revoked !== undefined) {
+    localStorage.removeItem('sl_snapshot_v1');
+    window.location.reload();
+  }
+  return result;
+}
+
 /* ------------------------------------------------------------ carga --- */
 
 export async function loadState() {
