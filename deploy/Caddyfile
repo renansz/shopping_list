@@ -1,17 +1,46 @@
-# Caddy resolve o HTTPS sozinho (Let's Encrypt) — e HTTPS e obrigatorio para o
-# app instalar no celular e para o service worker funcionar.
+# Caddy para list.zanelatto.com
 #
-#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
-#   sudo systemctl reload caddy
+# O Caddy resolve o HTTPS sozinho (Let's Encrypt) — e HTTPS e obrigatorio para
+# o app instalar no celular e para o service worker funcionar.
+#
+# Dois jeitos de usar, o conteudo e o mesmo:
+#
+#   1) Caddy em container, junto da aplicacao (padrao deste repositorio):
+#        docker compose --profile proxy up -d
+#      O compose ja passa DOMINIO e DESTINO por variavel de ambiente.
+#
+#   2) Caddy instalado na propria VPS:
+#        sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#        sudo systemctl reload caddy
+#      Sem as variaveis definidas, valem os padroes abaixo
+#      (list.zanelatto.com apontando para 127.0.0.1:3000).
+{
+	# Descomente e ponha seu e-mail para receber avisos de expiracao de
+	# certificado. E opcional: sem ele o Caddy emite o certificado do mesmo jeito.
+	# email voce@zanelatto.com
+}
 
-compras.seudominio.com.br {
+{$DOMINIO:list.zanelatto.com} {
 	encode gzip
 
-	# O stream de tempo real (SSE) nao pode ser bufferizado nem cortado.
-	reverse_proxy 127.0.0.1:3000 {
+	# HSTS: diz ao navegador para so voltar aqui por HTTPS.
+	# Comece com um max-age curto se quiser testar com calma; 1 ano e o valor final.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+	# O tempo real usa uma conexao HTTP que fica aberta (Server-Sent Events).
+	# flush_interval -1 desliga o buffer: sem isso as atualizacoes so chegariam
+	# em blocos, ou a conexao cairia a cada minuto.
+	reverse_proxy {$DESTINO:127.0.0.1:3000} {
 		flush_interval -1
 		transport http {
 			response_header_timeout 24h
+		}
+	}
+
+	log {
+		output file /var/log/caddy/list.zanelatto.com.log {
+			roll_size 10MiB
+			roll_keep 5
 		}
 	}
 }

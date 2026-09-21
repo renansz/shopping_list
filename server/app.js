@@ -26,6 +26,37 @@ import {
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
+/**
+ * O app não carrega nada de fora (sem CDN, sem fonte externa, sem script
+ * embutido no HTML), então a política pode ser a mais fechada possível.
+ * 'data:' fica liberado só para imagens, que é inofensivo e evita surpresa
+ * se algum ícone vier embutido no futuro.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "manifest-src 'self'",
+  "form-action 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+function aplicarCabecalhosDeSeguranca(req, res, config) {
+  res.setHeader('content-security-policy', CSP);
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('referrer-policy', 'same-origin');
+  res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
+  // HSTS só faz sentido (e só é honrado) quando a resposta chega por HTTPS.
+  if (isSecureRequest(req, config.trustProxy)) {
+    res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  }
+}
+
 export function createApp({ config, db }) {
   const store = new Store(db);
   const hub = new EventHub();
@@ -290,6 +321,7 @@ export function createApp({ config, db }) {
   const PUBLIC_ROUTES = new Set(['/api/me', '/api/login', '/api/logout', '/api/health']);
 
   async function handler(req, res) {
+    aplicarCabecalhosDeSeguranca(req, res, config);
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname.replace(/\/{2,}/g, '/');
 

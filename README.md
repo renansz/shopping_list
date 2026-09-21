@@ -83,25 +83,25 @@ npm run test:navegador
 
 ## Colocando na VPS
 
-O caminho completo, com HTTPS e domínio, está em
-[docs/DEPLOY.md](docs/DEPLOY.md). A versão curta, com Docker:
+Um comando sobe a aplicação **e** o HTTPS (o Caddy cuida do certificado
+sozinho):
 
 ```sh
 git clone https://github.com/renansz/shopping_list.git /opt/lista-de-compras
 cd /opt/lista-de-compras
-cp .env.example .env && nano .env      # defina HOUSEHOLD_PASSWORD
-docker compose up -d --build
+cp .env.example .env && nano .env          # defina HOUSEHOLD_PASSWORD
+docker compose --profile proxy up -d --build
 ```
 
-E um proxy com HTTPS na frente (obrigatório para instalar como app):
+Antes disso, só é preciso que o domínio aponte para a VPS e que as portas 80 e
+443 estejam livres. Se a máquina já tiver um proxy próprio, rode sem o perfil
+(`docker compose up -d`) e aponte o seu proxy para `127.0.0.1:3000` — o bloco
+pronto está em [`deploy/Caddyfile`](deploy/Caddyfile), e há um equivalente para
+Nginx em [`deploy/nginx.conf`](deploy/nginx.conf).
 
-```sh
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   # troque o domínio
-sudo systemctl reload caddy
-```
-
-Sem Docker, use o serviço systemd pronto em
-[`deploy/lista-de-compras.service`](deploy/lista-de-compras.service).
+O passo a passo completo — DNS, firewall, verificação, backup e problemas
+comuns — está em [docs/DEPLOY.md](docs/DEPLOY.md). Sem Docker, use o serviço
+systemd pronto em [`deploy/lista-de-compras.service`](deploy/lista-de-compras.service).
 
 ## Instalando no celular
 
