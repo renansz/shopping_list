@@ -293,8 +293,10 @@ stream — reveja o aviso da seção 3.
 
 Abra `https://list.zanelatto.com` no celular:
 
-- **iPhone/iPad:** precisa ser o **Safari**. Compartilhar → *Adicionar à Tela de
-  Início* → *Adicionar*.
+- **iPhone/iPad:** funciona no **Safari** e também no **Chrome** (iOS 16.4 ou
+  mais novo). No Safari: Compartilhar → *Adicionar à Tela de Início* →
+  *Adicionar*. No Chrome: botão Compartilhar na barra de endereço →
+  *Adicionar à Tela de Início*. Se aparecer *Abrir como App Web*, deixe ligado.
 - **Android:** o Chrome mostra *Instalar aplicativo*. Se não mostrar, menu ⋮ →
   *Adicionar à tela inicial*.
 
@@ -390,7 +392,7 @@ buscarem a versão nova em vez da guardada em cache.
 | "A porta 3000 já está em uso" | `sudo ss -lptn 'sport = :3000'` |
 | Site fora do ar depois de atualizar, mas `docker compose ps` mostra o app de pé | Proxy em container (Opção 3a) e o app subiu sem o overlay: `docker inspect lista-de-compras --format '{{json .NetworkSettings.Networks}}'` não lista a rede do proxy. Suba de novo com os dois `-f` e fixe `COMPOSE_FILE` no `.env` |
 | Itens não aparecem sozinhos | Proxy bufferizando `/api/events`: teste com o `curl -N` da seção 5 |
-| Não instala como app no celular | Só funciona em HTTPS, e no Safari (iOS) ou Chrome (Android) |
+| Não instala como app no celular | Só funciona em HTTPS, no Safari ou Chrome do iOS (16.4+) e no Chrome do Android |
 | Cookie não fica salvo | Falta `TRUST_PROXY=1` (o compose já define) |
 | "HOUSEHOLD_PASSWORD não definida" | O `.env` não foi criado a partir do `.env.example` |
 | App abre com dados antigos | Cache do service worker: suba o `SHELL_VERSION` em `public/sw.js` |

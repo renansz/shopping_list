@@ -111,8 +111,9 @@ systemd pronto em [`deploy/lista-de-compras.service`](deploy/lista-de-compras.se
 
 Abra o endereço **https://** no navegador do celular e:
 
-- **iPhone / iPad (Safari):** botão Compartilhar → *Adicionar à Tela de Início*.
-  O app abre em tela cheia, sem barra do navegador.
+- **iPhone / iPad (Safari ou Chrome, iOS 16.4+):** botão Compartilhar →
+  *Adicionar à Tela de Início*. O app abre em tela cheia, sem barra do
+  navegador.
 - **Android (Chrome):** aparece o aviso *Instalar aplicativo*; se não aparecer,
   menu ⋮ → *Adicionar à tela inicial*.
 
