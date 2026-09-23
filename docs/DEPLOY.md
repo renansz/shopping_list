@@ -141,6 +141,23 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.shared-proxy.yml u
 Nenhuma porta é publicada no host — a aplicação só existe dentro dessa rede
 Docker, o que já é uma isolação a mais.
 
+**Deixe o overlay fixo no `.env`.** Se um dia alguém rodar só
+`docker compose up -d`, sem o segundo `-f`, o container é recriado **fora**
+da rede do proxy: o app continua de pé, mas o proxy deixa de enxergá-lo e o
+site cai. Para não depender de lembrar, acrescente ao `.env`:
+
+```sh
+COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.shared-proxy.yml
+```
+
+O Docker Compose lê essa variável do `.env` da pasta do projeto, e a partir
+daí `docker compose up -d --build`, `logs`, `ps` etc. já usam os dois arquivos
+sozinhos. Confira com:
+
+```sh
+docker compose config | grep -A4 '^networks:'   # tem que listar a rede do proxy
+```
+
 **Com Caddy em container**, acrescente este bloco ao Caddyfile *dele* (não ao
 deste repositório) — o modelo pronto está comentado no fim de
 `deploy/Caddyfile`:
@@ -330,11 +347,35 @@ docker compose start lista
 
 ## 8. Atualizando
 
+Entre na VPS, vá para a pasta do projeto e puxe o código novo:
+
 ```sh
-cd /opt/lista-de-compras
+cd /opt/lista-de-compras        # ou onde o repositório foi clonado
 git pull
-docker compose --profile proxy up -d --build
 ```
+
+Depois suba de novo com **o mesmo comando usado na instalação** — é aqui que
+mais se derruba o site sem querer:
+
+| Instalado com | Para atualizar |
+| --- | --- |
+| Opção A (Caddy deste repositório) | `docker compose --profile proxy up -d --build` |
+| Opção 3a com `COMPOSE_FILE` no `.env` | `docker compose up -d --build` |
+| Opção 3a sem `COMPOSE_FILE` | `docker compose -f docker-compose.yml -f deploy/docker-compose.shared-proxy.yml up -d --build` |
+| Opção 3b (proxy direto na VPS) | `docker compose up -d --build` |
+| Opção C (systemd) | `sudo systemctl restart lista-de-compras` |
+
+Na Opção 3a, **nunca** use `--profile proxy`: ele tenta subir um segundo
+Caddy nas portas 80/443, que já pertencem ao proxy existente.
+
+Confira que voltou (o healthcheck leva uns 30 segundos para ficar `healthy`):
+
+```sh
+docker compose ps
+curl -s https://list.zanelatto.com/api/health      # {"ok":true,...}
+```
+
+Se não voltar, `docker compose logs -f lista` mostra o motivo.
 
 As migrações do banco rodam sozinhas na subida. Se mudou algo no front-end,
 suba o `SHELL_VERSION` no topo de `public/sw.js` — é o que faz os celulares
@@ -347,6 +388,7 @@ buscarem a versão nova em vez da guardada em cache.
 | Certificado não é emitido | `dig +short list.zanelatto.com` aponta para a VPS? Porta 80 aberta no firewall? Veja `docker compose logs caddy` |
 | "address already in use" na porta 80 | Outro servidor web na máquina: `sudo ss -lptn 'sport = :80'`. Use a Opção B |
 | "A porta 3000 já está em uso" | `sudo ss -lptn 'sport = :3000'` |
+| Site fora do ar depois de atualizar, mas `docker compose ps` mostra o app de pé | Proxy em container (Opção 3a) e o app subiu sem o overlay: `docker inspect lista-de-compras --format '{{json .NetworkSettings.Networks}}'` não lista a rede do proxy. Suba de novo com os dois `-f` e fixe `COMPOSE_FILE` no `.env` |
 | Itens não aparecem sozinhos | Proxy bufferizando `/api/events`: teste com o `curl -N` da seção 5 |
 | Não instala como app no celular | Só funciona em HTTPS, e no Safari (iOS) ou Chrome (Android) |
 | Cookie não fica salvo | Falta `TRUST_PROXY=1` (o compose já define) |
