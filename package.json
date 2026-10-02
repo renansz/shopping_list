@@ -13,7 +13,8 @@
     "test": "node --test test/*.test.js",
     "icons": "node tools/gen-icons.mjs",
     "backup": "node tools/backup.mjs",
-    "test:navegador": "node tools/teste-navegador.mjs"
+    "test:navegador": "node tools/teste-navegador.mjs",
+    "senha": "node tools/senha.mjs"
   },
   "dependencies": {}
 }

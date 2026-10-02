@@ -9,13 +9,6 @@ const COOKIE_NAME = 'sl_session';
 // quem usa o app com alguma regularidade.
 const COOKIE_MAX_AGE_DAYS = 400;
 
-export function checkPassword(given, expected) {
-  // Compara hashes de tamanho fixo para o tempo de resposta não vazar a senha.
-  const a = crypto.createHash('sha256').update(String(given ?? '')).digest();
-  const b = crypto.createHash('sha256').update(String(expected ?? '')).digest();
-  return crypto.timingSafeEqual(a, b);
-}
-
 export function parseCookies(header = '') {
   const jar = {};
   for (const part of String(header).split(';')) {

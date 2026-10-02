@@ -26,6 +26,15 @@ para de valer por logout ou revogação — ver `/api/sessions` abaixo.
 | `POST` | `/api/login` | `{ name, password }` → cria a sessão |
 | `POST` | `/api/logout` | Encerra a sessão (revoga no servidor, não só limpa o cookie) |
 | `GET` | `/api/health` | `{ ok: true, uptime }` para monitoramento |
+| `GET` | `/api/password` | Se a senha já foi trocada pelo app, quando e por quem |
+| `POST` | `/api/password` | `{ currentPassword, newPassword, revokeOthers?: true }` troca a senha da casa |
+
+Um `401` em `/api/password` significa senha atual errada, não sessão inválida —
+só o `401` do porteiro de sessão traz `sessionExpired: true`, e é esse que deve
+levar o app de volta para a tela de entrada.
+
+A partir da primeira troca, o `HOUSEHOLD_PASSWORD` do ambiente deixa de valer.
+Para redefinir sem o app (senha esquecida): `node tools/senha.mjs`.
 
 ## Convites (link mágico)
 

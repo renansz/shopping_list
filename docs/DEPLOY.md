@@ -82,6 +82,7 @@ cd /opt/lista-de-compras
 
 cp .env.example .env
 nano .env          # defina HOUSEHOLD_PASSWORD com uma senha boa
+                   # (é só a senha inicial: depois dá para trocar pelo app)
 
 docker compose --profile proxy up -d --build
 ```
@@ -395,6 +396,7 @@ buscarem a versão nova em vez da guardada em cache.
 | Não instala como app no celular | Só funciona em HTTPS, no Safari ou Chrome do iOS (16.4+) e no Chrome do Android |
 | Cookie não fica salvo | Falta `TRUST_PROXY=1` (o compose já define) |
 | "HOUSEHOLD_PASSWORD não definida" | O `.env` não foi criado a partir do `.env.example` |
+| Esqueceram a senha da casa | `docker compose exec lista node tools/senha.mjs` redefine pelo servidor (editar o `.env` não resolve depois da primeira troca pelo app) |
 | App abre com dados antigos | Cache do service worker: suba o `SHELL_VERSION` em `public/sw.js` |
 | Erro de versão do Node | Precisa ser 22.13+; com Docker isso já vem resolvido |
 

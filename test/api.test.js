@@ -408,3 +408,165 @@ test('logout revoga a sessao no servidor, nao so limpa o cookie', async (t) => {
   const dados = await reuso.json();
   assert.equal(dados.authenticated, false);
 });
+
+/* ------------------------------------------------------------- senha ---- */
+
+test('troca de senha: a nova passa a valer e a antiga para de valer', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const antes = await srv.call('GET', '/api/password');
+  assert.equal(antes.data.personalizada, false, 'começa com a senha do ambiente');
+
+  const troca = await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'nova-senha-2026',
+  });
+  assert.equal(troca.status, 200);
+  assert.equal(troca.data.personalizada, true);
+  assert.equal(troca.data.atualizadaPor, 'renan');
+
+  const comAntiga = await srv.secondClient().call('POST', '/api/login', {
+    name: 'ana',
+    password: 'senha-da-casa',
+  });
+  assert.equal(comAntiga.status, 401, 'a senha antiga não entra mais');
+
+  const comNova = await srv.secondClient().call('POST', '/api/login', {
+    name: 'ana',
+    password: 'nova-senha-2026',
+  });
+  assert.equal(comNova.status, 200);
+});
+
+test('troca de senha derruba os outros aparelhos e mantém o de quem trocou', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const outro = srv.secondClient();
+  await outro.call('POST', '/api/login', { name: 'ana', password: 'senha-da-casa' });
+  assert.equal((await outro.call('GET', '/api/state')).status, 200);
+
+  const troca = await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'outra-senha-boa',
+  });
+  assert.equal(troca.data.revoked, 1);
+
+  assert.equal((await outro.call('GET', '/api/state')).status, 401, 'o outro aparelho caiu');
+  assert.equal((await srv.call('GET', '/api/state')).status, 200, 'quem trocou continua dentro');
+});
+
+test('dá para trocar a senha sem derrubar ninguém', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const outro = srv.secondClient();
+  await outro.call('POST', '/api/login', { name: 'ana', password: 'senha-da-casa' });
+
+  const troca = await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'senha-sem-derrubar',
+    revokeOthers: false,
+  });
+  assert.equal(troca.data.revoked, 0);
+  assert.equal((await outro.call('GET', '/api/state')).status, 200, 'o outro aparelho segue logado');
+});
+
+test('senha atual errada não troca nada', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const troca = await srv.call('POST', '/api/password', {
+    currentPassword: 'chute-errado',
+    newPassword: 'nova-senha-2026',
+  });
+  assert.equal(troca.status, 401);
+  assert.match(troca.data.error, /atual/);
+
+  const aindaVale = await srv.secondClient().call('POST', '/api/login', {
+    name: 'ana',
+    password: 'senha-da-casa',
+  });
+  assert.equal(aindaVale.status, 200, 'a senha de antes continua valendo');
+});
+
+test('senha nova precisa passar nas regras', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const curta = await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'curta',
+  });
+  assert.equal(curta.status, 400);
+  assert.match(curta.data.error, /8/);
+
+  const igual = await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'senha-da-casa',
+  });
+  assert.equal(igual.status, 400);
+  assert.match(igual.data.error, /diferente/);
+});
+
+test('trocar a senha exige estar logado', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+
+  const semLogin = await srv.call(
+    'POST',
+    '/api/password',
+    { currentPassword: 'senha-da-casa', newPassword: 'nova-senha-2026' },
+    { noCookie: true },
+  );
+  assert.equal(semLogin.status, 401);
+});
+
+test('o reset geral passa a cobrar a senha nova', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+  await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'senha-atualizada',
+  });
+
+  const comAntiga = await srv.call('POST', '/api/sessions/revoke-all', { password: 'senha-da-casa' });
+  assert.equal(comAntiga.status, 401);
+
+  const comNova = await srv.call('POST', '/api/sessions/revoke-all', { password: 'senha-atualizada' });
+  assert.equal(comNova.status, 200);
+});
+
+test('401 de senha errada não é confundido com sessão expirada', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  // Errar a senha atual na troca: o aparelho continua logado, então o cliente
+  // não pode ser mandado de volta para a tela de entrada.
+  const senhaErrada = await srv.call('POST', '/api/password', {
+    currentPassword: 'chute',
+    newPassword: 'nova-senha-2026',
+  });
+  assert.equal(senhaErrada.status, 401);
+  assert.equal(senhaErrada.data.sessionExpired, undefined, 'não é sessão expirada');
+  assert.equal((await srv.call('GET', '/api/state')).status, 200, 'continua logado');
+
+  // Já um acesso revogado precisa vir marcado, para o app voltar ao login.
+  const outro = srv.secondClient();
+  await outro.call('POST', '/api/login', { name: 'ana', password: 'senha-da-casa' });
+  await srv.call('POST', '/api/password', {
+    currentPassword: 'senha-da-casa',
+    newPassword: 'senha-nova-boa',
+  });
+  const derrubado = await outro.call('GET', '/api/state');
+  assert.equal(derrubado.status, 401);
+  assert.equal(derrubado.data.sessionExpired, true, 'é sessão expirada');
+});

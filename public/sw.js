@@ -3,7 +3,7 @@
  * Chamadas de /api/ nunca são cacheadas — dados vem sempre do servidor.
  * Suba SHELL_VERSION ao publicar mudanças no front para invalidar o cache.
  */
-const SHELL_VERSION = 'v1';
+const SHELL_VERSION = 'v2';
 const SHELL_CACHE = `lista-shell-${SHELL_VERSION}`;
 
 const SHELL_FILES = [

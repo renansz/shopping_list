@@ -70,6 +70,18 @@ export class SessionStore {
     return Number(result.changes ?? 0) > 0;
   }
 
+  /** Revoga todos menos um aparelho - quem troca a senha continua logado. */
+  revokeOthers(exceptId, reason = 'troca de senha') {
+    const ts = now();
+    const result = this.db
+      .prepare(
+        `UPDATE sessions SET revoked_at = ?, revoked_reason = ?
+         WHERE revoked_at IS NULL AND id != ?`,
+      )
+      .run(ts, reason, exceptId ?? '');
+    return Number(result.changes ?? 0);
+  }
+
   revokeAll(reason = 'reset geral') {
     const ts = now();
     const result = this.db

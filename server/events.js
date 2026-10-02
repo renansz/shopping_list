@@ -11,8 +11,8 @@ export class EventHub {
     this.heartbeat.unref?.();
   }
 
-  add(res, { name = null } = {}) {
-    const client = { res, name };
+  add(res, { name = null, sessionId = null } = {}) {
+    const client = { res, name, sessionId };
     this.clients.add(client);
     res.write(`retry: 3000\n\n`);
     res.on('close', () => this.clients.delete(client));
@@ -41,6 +41,26 @@ export class EventHub {
         this.clients.delete(client);
       }
     }
+  }
+
+  /**
+   * Fecha os streams dos aparelhos cujo acesso acabou de ser revogado, para
+   * eles perceberem na hora em vez de so na proxima chamada de API.
+   * @param {(sessionId: string|null) => boolean} foiRevogada
+   */
+  closeWhere(foiRevogada) {
+    let fechados = 0;
+    for (const client of [...this.clients]) {
+      if (!foiRevogada(client.sessionId)) continue;
+      this.clients.delete(client);
+      fechados += 1;
+      try {
+        client.res.end();
+      } catch {
+        // cliente ja desconectado
+      }
+    }
+    return fechados;
   }
 
   get size() {
