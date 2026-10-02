@@ -2,7 +2,7 @@
 import { el, clear, icon, formatDate, formatRelative, plural, hostOf } from './dom.js';
 import { confirmSheet, emptyState, field, sheet, toast } from './ui.js';
 import * as actions from './actions.js';
-import { prefs, setPref, state } from './state.js';
+import { prefs, setPref, setState, state } from './state.js';
 import { ROUTES, go } from './router.js';
 
 /* ------------------------------------------------------------- login --- */
@@ -716,6 +716,17 @@ export function sessionsScreen() {
   }
 
   container.append(
+    el('p', { class: 'section-title', text: 'Senha da casa' }),
+    el('div', { class: 'card', style: { padding: '16px' } }, [
+      el('p', {
+        class: 'hint',
+        style: { margin: '0 0 12px' },
+        text: state.senha?.atualizadaEm
+          ? `Trocada ${formatRelative(state.senha.atualizadaEm)}${state.senha.atualizadaPor ? ` por ${state.senha.atualizadaPor}` : ''}.`
+          : 'Ainda é a senha definida na instalação.',
+      }),
+      el('button', { class: 'btn btn--block', onClick: trocarSenhaFlow }, [icon('key'), 'Trocar a senha']),
+    ]),
     el('div', { class: 'btnrow', style: { marginTop: '16px' } }, [
       el('button', { class: 'btn btn--danger btn--block', onClick: revokeAllFlow }, [
         icon('logout'),
@@ -725,6 +736,77 @@ export function sessionsScreen() {
   );
 
   return container;
+}
+
+/**
+ * Troca a senha da casa. Por padrão derruba os outros aparelhos: trocar a
+ * senha quase sempre quer dizer "quem sabia a antiga não entra mais".
+ */
+export function trocarSenhaFlow() {
+  sheet((close) => {
+    const atual = el('input', { class: 'input', type: 'password', autocomplete: 'current-password' });
+    const nova = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    const repetida = el('input', { class: 'input', type: 'password', autocomplete: 'new-password' });
+    const derrubar = el('input', { type: 'checkbox', id: 'derrubar-outros', checked: true });
+    const erro = el('div', { class: 'error', hidden: true });
+    const salvar = el('button', { class: 'btn btn--primary', text: 'Trocar senha' });
+
+    const falhar = (mensagem) => {
+      erro.textContent = mensagem;
+      erro.hidden = false;
+      salvar.disabled = false;
+      salvar.textContent = 'Trocar senha';
+    };
+
+    salvar.addEventListener('click', async () => {
+      erro.hidden = true;
+      if (nova.value !== repetida.value) {
+        falhar('A confirmação não bate com a senha nova.');
+        return;
+      }
+      salvar.disabled = true;
+      salvar.textContent = 'Trocando...';
+      try {
+        const resultado = await actions.changePassword({
+          currentPassword: atual.value,
+          newPassword: nova.value,
+          revokeOthers: derrubar.checked,
+        });
+        close();
+        setState({ senha: resultado });
+        actions.loadSessions().catch(() => {});
+        toast(
+          resultado.revoked > 0
+            ? `Senha trocada. ${plural(resultado.revoked, 'aparelho precisa', 'aparelhos precisam')} entrar de novo.`
+            : 'Senha trocada.',
+        );
+      } catch (error) {
+        falhar(error.message || 'Não consegui trocar a senha.');
+      }
+    });
+
+    return [
+      el('h2', { class: 'sheet__title', text: 'Trocar a senha da casa' }),
+      el('p', {
+        class: 'sheet__desc',
+        text: 'A senha é a mesma para a família inteira. Quem entrou por convite não precisa dela.',
+      }),
+      el('div', { class: 'sheet__form' }, [
+        field('Senha atual', atual),
+        field('Senha nova', nova, 'Pelo menos 8 caracteres.'),
+        field('Repita a senha nova', repetida),
+        el('label', { class: 'checkline', for: 'derrubar-outros' }, [
+          derrubar,
+          el('span', { text: 'Desconectar os outros aparelhos (recomendado)' }),
+        ]),
+      ]),
+      erro,
+      el('div', { class: 'btnrow', style: { marginTop: '12px' } }, [
+        el('button', { class: 'btn', text: 'Cancelar', onClick: close }),
+        salvar,
+      ]),
+    ];
+  });
 }
 
 async function revokeAllFlow() {

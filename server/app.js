@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store, ValidationError } from './store.js';
 import { SessionStore } from './sessions.js';
+import { GerenciadorDeSenha, normaliza } from './senha.js';
 import { EventHub } from './events.js';
 import {
   Router,
@@ -13,7 +14,7 @@ import {
   sendJson,
   sendText,
 } from './http.js';
-import { LoginThrottle, COOKIE_NAME, checkPassword, clearCookie, parseCookies, sessionCookie } from './auth.js';
+import { LoginThrottle, COOKIE_NAME, clearCookie, parseCookies, sessionCookie } from './auth.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -52,7 +53,9 @@ export function createApp({ config, db }) {
   const store = new Store(db);
   const sessions = new SessionStore(db);
   const hub = new EventHub();
+  const senhas = new GerenciadorDeSenha(db, config.password);
   const loginThrottle = new LoginThrottle();
+  const senhaThrottle = new LoginThrottle({ max: 5 });
   const inviteThrottle = new LoginThrottle();
   const serveStatic = createStaticHandler(PUBLIC_DIR);
   const router = new Router();
@@ -82,6 +85,7 @@ export function createApp({ config, db }) {
       user: ctx.user ? { name: ctx.user.name } : null,
       sessionId: ctx.sessionId,
       appName: config.appName,
+      senhaPersonalizada: senhas.personalizada,
     });
   }, { public: true });
 
@@ -97,7 +101,7 @@ export function createApp({ config, db }) {
       sendJson(res, 400, { error: 'Escreva seu nome (aparece para a família).' });
       return;
     }
-    if (!config.authDisabled && !checkPassword(body.password, config.password)) {
+    if (!config.authDisabled && !senhas.confere(body.password)) {
       loginThrottle.fail(ip);
       sendJson(res, 401, { error: 'Senha incorreta.' });
       return;
@@ -192,12 +196,55 @@ export function createApp({ config, db }) {
   // destrutivo, exige a senha da casa de novo, nao so estar logado.
   router.post('/api/sessions/revoke-all', async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    if (!config.authDisabled && !checkPassword(body.password, config.password)) {
+    if (!config.authDisabled && !senhas.confere(body.password)) {
       sendJson(res, 401, { error: 'Senha incorreta.' });
       return;
     }
     const count = sessions.revokeAll(`reset geral por ${ctx.user?.name ?? '?'}`);
     sendJson(res, 200, { revoked: count }, { 'set-cookie': clearCookie({ secure: cookieSecureFor(req) }) });
+  });
+
+  /* ----------------------------------------------------------- senha ---- */
+
+  // Quem sabe a senha atual pode trocá-la pelo app. A partir da primeira
+  // troca, o HOUSEHOLD_PASSWORD do ambiente deixa de valer (ver server/senha.js).
+  router.get('/api/password', (req, res) => {
+    sendJson(res, 200, senhas.info);
+  });
+
+  router.post('/api/password', async (req, res, ctx) => {
+    const ip = clientIp(req, config.trustProxy);
+    if (!senhaThrottle.check(ip)) {
+      sendJson(res, 429, { error: 'Muitas tentativas. Espere alguns minutos.' });
+      return;
+    }
+    const body = await readJsonBody(req);
+
+    if (!config.authDisabled && !senhas.confere(body.currentPassword)) {
+      senhaThrottle.fail(ip);
+      sendJson(res, 401, { error: 'A senha atual está incorreta.' });
+      return;
+    }
+    senhaThrottle.reset(ip);
+
+    if (normaliza(body.newPassword) === normaliza(body.currentPassword)) {
+      sendJson(res, 400, { error: 'A senha nova precisa ser diferente da atual.' });
+      return;
+    }
+
+    const info = senhas.define(body.newPassword, { por: ctx.user?.name ?? null });
+
+    // Por padrão os outros aparelhos caem: trocar a senha normalmente quer
+    // dizer "quem sabia a antiga não entra mais". Quem pediu a troca fica.
+    let revogadas = 0;
+    if (body.revokeOthers !== false) {
+      revogadas = sessions.revokeOthers(ctx.sessionId, `troca de senha por ${ctx.user?.name ?? '?'}`);
+      // Fecha o tempo real de quem acabou de perder o acesso, para o app
+      // daquele aparelho voltar para a tela de entrada na hora.
+      hub.closeWhere((sessionId) => sessionId && sessionId !== ctx.sessionId);
+    }
+
+    sendJson(res, 200, { ok: true, revoked: revogadas, ...info });
   });
 
   /* --------------------------------------------------------- estado ---- */
@@ -388,7 +435,7 @@ export function createApp({ config, db }) {
       connection: 'keep-alive',
       'x-accel-buffering': 'no', // impede o nginx de segurar o stream
     });
-    hub.add(res, { name: ctx.user?.name ?? null });
+    hub.add(res, { name: ctx.user?.name ?? null, sessionId: ctx.sessionId ?? null });
     res.write(`event: message\ndata: ${JSON.stringify({ type: 'hello', at: new Date().toISOString() })}\n\n`);
   });
 
@@ -438,7 +485,9 @@ export function createApp({ config, db }) {
       };
 
       if (!user && !match.public) {
-        sendJson(res, 401, { error: 'Entre com a senha da casa.' });
+        // sessionExpired separa "sua sessão acabou" de "você errou a senha":
+        // só o primeiro caso deve jogar o app de volta para a tela de entrada.
+        sendJson(res, 401, { error: 'Entre com a senha da casa.', sessionExpired: true });
         return;
       }
 

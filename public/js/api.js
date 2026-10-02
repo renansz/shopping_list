@@ -113,9 +113,24 @@ async function rawRequest(method, path, body, { signal } = {}) {
     }
   }
   if (!response.ok) {
+    // O servidor marca com sessionExpired o 401 que significa "a sessão deste
+    // aparelho não vale mais" (logout em outro lugar, acesso revogado, troca de
+    // senha). Um 401 de senha errada num formulário NÃO tem a marca - senão
+    // errar a senha atual na troca derrubaria quem está trocando.
+    if (response.status === 401 && data?.sessionExpired) {
+      for (const aviso of semSessao) aviso();
+    }
     throw new ApiError(data?.error || `Erro ${response.status}`, response.status);
   }
   return data ?? {};
+}
+
+const semSessao = new Set();
+
+/** Avisa quando o servidor recusar a sessão deste aparelho. */
+export function aoPerderSessao(fn) {
+  semSessao.add(fn);
+  return () => semSessao.delete(fn);
 }
 
 export function get(path, options) {

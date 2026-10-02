@@ -17,6 +17,7 @@ export const state = {
   history: [],
   historyCount: 0,
 
+  senha: null,
   sessions: [], // aparelhos com acesso (tela "Acessos")
   invites: [], // convites pendentes, ainda nao usados
 

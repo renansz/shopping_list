@@ -110,6 +110,25 @@ export async function revokeAllSessions(password) {
   return result;
 }
 
+/* ------------------------------------------------------------ senha --- */
+
+export async function passwordInfo() {
+  return api.get('/api/password');
+}
+
+/**
+ * Troca a senha da casa.
+ * @param {object} opcoes
+ * @param {boolean} opcoes.revokeOthers derruba os outros aparelhos (padrão: sim)
+ */
+export async function changePassword({ currentPassword, newPassword, revokeOthers = true }) {
+  return api.post(
+    '/api/password',
+    { currentPassword, newPassword, revokeOthers },
+    { queue: false },
+  );
+}
+
 /* ------------------------------------------------------------ carga --- */
 
 export async function loadState() {

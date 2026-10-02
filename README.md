@@ -122,6 +122,26 @@ gerado no menu **Acessos** (sem senha nenhuma) — e escolhe o próprio nome. A
 sessão fica valendo indefinidamente; ninguém precisa entrar de novo, a menos
 que faça logout ou que o acesso seja revogado.
 
+## Senha da casa
+
+A senha vale para a família inteira (quem entra por convite não precisa dela).
+Para trocar, **menu → Acessos → Trocar a senha**: pede a senha atual, a nova, e
+por padrão desconecta os outros aparelhos — trocar a senha quase sempre quer
+dizer "quem sabia a antiga não entra mais". Quem está trocando continua logado.
+
+O `HOUSEHOLD_PASSWORD` do `.env` é só a senha **inicial**: a partir da primeira
+troca pelo app, ele deixa de valer. É de propósito — se continuasse valendo,
+trocar a senha não adiantaria nada.
+
+**Esqueceu a senha?** Pelo servidor, sem precisar do app:
+
+```sh
+npm run senha                                    # pergunta a senha nova (não aparece na tela)
+docker compose exec lista node tools/senha.mjs   # com Docker
+```
+
+Acrescente `--derrubar-tudo` para, além de trocar, encerrar todas as sessões.
+
 ## Backup
 
 O banco é um arquivo só. Para copiar com o serviço no ar:
@@ -141,7 +161,7 @@ Tudo por variáveis de ambiente (arquivo `.env`):
 
 | Variável | Padrão | Para que serve |
 | --- | --- | --- |
-| `HOUSEHOLD_PASSWORD` | — | Senha única da casa. **Obrigatória.** |
+| `HOUSEHOLD_PASSWORD` | — | Senha **inicial** da casa. **Obrigatória.** Depois da primeira troca pelo app, deixa de valer |
 | `PORT` | `3000` | Porta do servidor |
 | `HOST` | `0.0.0.0` | Interface de escuta |
 | `DATA_DIR` | `./data` | Onde fica o banco SQLite |

@@ -162,6 +162,57 @@ try {
   });
   conferir('o que foi anotado offline chegou ao servidor', nomes.some((nome) => nome.includes('sem sinal')));
 
+  // Troca de senha pelo app.
+  await renan.goto(`${base}/#/acessos`);
+  await renan.waitForTimeout(800);
+  conferir('tela de acessos oferece trocar a senha', (await renan.locator('button:has-text("Trocar a senha")').count()) === 1);
+
+  await renan.click('button:has-text("Trocar a senha")');
+  await renan.waitForTimeout(500);
+  const camposDeSenha = renan.locator('.sheet input[type=password]');
+
+  // Senha atual errada: avisa e - importante - NAO desloga quem esta trocando.
+  await camposDeSenha.nth(0).fill('chute-errado');
+  await camposDeSenha.nth(1).fill('senha-nova-2026');
+  await camposDeSenha.nth(2).fill('senha-nova-2026');
+  await renan.click('.sheet button:has-text("Trocar senha")');
+  await renan.waitForTimeout(800);
+  conferir('senha atual errada é avisada', (await renan.locator('.sheet .error:visible').count()) === 1);
+  conferir('errar a senha atual não desloga quem está trocando', (await renan.locator('#login-pass').count()) === 0);
+
+  // Confirmacao que nao bate.
+  await camposDeSenha.nth(0).fill(SENHA);
+  await camposDeSenha.nth(2).fill('outra-coisa');
+  await renan.click('.sheet button:has-text("Trocar senha")');
+  await renan.waitForTimeout(400);
+  conferir('confirmação diferente é avisada', (await renan.locator('.sheet .error:visible').count()) === 1);
+
+  // Agora de verdade.
+  await camposDeSenha.nth(2).fill('senha-nova-2026');
+  await renan.click('.sheet button:has-text("Trocar senha")');
+  await renan.waitForTimeout(1800);
+  conferir('senha trocada com sucesso', (await renan.locator('.sheet').count()) === 0);
+  conferir('quem trocou continua logado', (await renan.locator('#login-pass').count()) === 0);
+
+  await ana.waitForTimeout(1500);
+  await ana.locator('.item__check').first().click().catch(() => {});
+  await ana.waitForTimeout(2000);
+  conferir('o outro aparelho volta para a tela de entrada', (await ana.locator('#login-pass').count()) === 1);
+
+  const ctxTerceiro = await browser.newContext(celular);
+  const terceiro = await ctxTerceiro.newPage();
+  await terceiro.goto(base);
+  await terceiro.fill('#login-name', 'Visita');
+  await terceiro.fill('#login-pass', SENHA);
+  await terceiro.click('button[type=submit]');
+  await terceiro.waitForTimeout(1200);
+  conferir('a senha antiga não entra mais', (await terceiro.locator('.error:visible').count()) === 1);
+
+  await terceiro.fill('#login-pass', 'senha-nova-2026');
+  await terceiro.click('button[type=submit]');
+  await terceiro.waitForSelector('.composer__input', { timeout: 8000 }).catch(() => {});
+  conferir('a senha nova entra', (await terceiro.locator('.composer__input').count()) === 1);
+
   // PWA.
   const temServiceWorker = await renan.evaluate(async () => {
     const registro = await navigator.serviceWorker.ready;

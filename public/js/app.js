@@ -566,7 +566,14 @@ async function handleRoute() {
   } else if (route.name === 'lists') {
     await actions.loadOpenLists().catch(() => {});
   } else if (route.name === 'access') {
-    await Promise.all([actions.loadSessions().catch(() => {}), actions.loadInvites().catch(() => {})]);
+    await Promise.all([
+      actions.loadSessions().catch(() => {}),
+      actions.loadInvites().catch(() => {}),
+      actions
+        .passwordInfo()
+        .then((senha) => setState({ senha }))
+        .catch(() => {}),
+    ]);
   } else if (route.name === 'current' && state.current) {
     setState({ viewing: state.current });
   }
@@ -630,6 +637,15 @@ async function boot() {
   // Le a rota da URL ja na abertura - antes de saber se ha sessao - para um
   // link de convite (#/entrar/...) ser reconhecido mesmo sem login ainda.
   setState({ route: parseRoute() });
+
+  // O servidor recusou a sessão deste aparelho (logout em outro lugar, acesso
+  // revogado, senha trocada): volta para a tela de entrada em vez de deixar
+  // uma tela antiga que não salva mais nada.
+  api.aoPerderSessao(() => {
+    if (!state.authenticated) return;
+    setState({ authenticated: false, user: null, ready: true });
+    toast('Sua sessão foi encerrada. Entre de novo.', { duration: 6000 });
+  });
 
   window.addEventListener('online', () => {
     setState({ online: true });
