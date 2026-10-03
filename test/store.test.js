@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openDatabase } from '../server/db.js';
-import { Store, ValidationError, normalizeUrl } from '../server/store.js';
+import { Store, ValidationError, normalizeUrl, separaItens } from '../server/store.js';
 
 function newStore() {
   return new Store(openDatabase(':memory:'));
@@ -46,6 +46,48 @@ test('vários itens de uma vez', () => {
   const list = store.ensureCurrentList();
   const created = store.addItems(list.id, ['pao', '', 'leite', '  queijo ']);
   assert.deepEqual(created.map((item) => item.name), ['pao', 'leite', 'queijo']);
+});
+
+test('separa itens por vírgula, ponto e vírgula e quebra de linha', () => {
+  assert.deepEqual(separaItens('abacate, tomate, maçã'), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(separaItens('abacate; tomate; maçã'), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(separaItens('abacate\ntomate\nmaçã'), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(separaItens('abacate, tomate; maçã\nuva'), ['abacate', 'tomate', 'maçã', 'uva']);
+});
+
+test('vírgula entre dígitos é decimal, não separador', () => {
+  assert.deepEqual(separaItens('arroz 1,5 kg'), ['arroz 1,5 kg']);
+  assert.deepEqual(separaItens('1,5'), ['1,5']);
+  assert.deepEqual(separaItens('arroz 1,5 kg, feijão 2,5 kg'), ['arroz 1,5 kg', 'feijão 2,5 kg']);
+  // só não separa com dígito dos dois lados
+  assert.deepEqual(separaItens('arroz 5,feijão 2'), ['arroz 5', 'feijão 2']);
+  // ponto e vírgula entre dígitos separa normalmente
+  assert.deepEqual(separaItens('1;5'), ['1', '5']);
+});
+
+test('separar limpa espaços das pontas e descarta pedaços vazios', () => {
+  assert.deepEqual(separaItens('  abacate ,  tomate  '), ['abacate', 'tomate']);
+  assert.deepEqual(separaItens('abacate,,tomate,'), ['abacate', 'tomate']);
+  assert.deepEqual(separaItens(' ,; \n '), []);
+  assert.deepEqual(separaItens(''), []);
+});
+
+test('texto sem separador continua virando um item só', () => {
+  assert.deepEqual(separaItens('leite integral'), ['leite integral']);
+});
+
+test('recusa colar mais de 100 itens de uma vez', () => {
+  const cem = Array.from({ length: 100 }, (_, n) => `item ${n + 1}`);
+  assert.equal(separaItens(cem.join(',')).length, 100);
+  assert.throws(() => separaItens([...cem, 'item 101'].join(',')), ValidationError);
+  assert.throws(() => separaItens([...cem, 'item 101'].join(',')), /100 itens de uma vez/);
+});
+
+test('adicionar vários aceita os separadores no texto colado', () => {
+  const store = newStore();
+  const list = store.ensureCurrentList();
+  const created = store.addItems(list.id, 'abacate, tomate; maçã\narroz 1,5 kg');
+  assert.deepEqual(created.map((item) => item.name), ['abacate', 'tomate', 'maçã', 'arroz 1,5 kg']);
 });
 
 test('link do item só aceita http(s) e completa o esquema', () => {

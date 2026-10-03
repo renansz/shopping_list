@@ -2,6 +2,8 @@ import { newId } from './ids.js';
 
 const MAX_TEXT = 400;
 const MAX_NOTE = 2000;
+// Teto de segurança: colar um texto gigante por engano não pode encher a lista.
+const MAX_ITENS_DE_UMA_VEZ = 100;
 
 export class ValidationError extends Error {
   constructor(message, status = 400) {
@@ -41,6 +43,28 @@ export function normalizeUrl(value) {
     throw new ValidationError('Use um link http ou https.');
   }
   return parsed.toString();
+}
+
+// A vírgula só deixa de separar quando tem dígito dos dois lados: em pt-BR
+// ela é o decimal ("1,5"). Com letra de um dos lados ("arroz 5,feijão"), separa.
+const SEPARADORES = /\r?\n|;|(?<!\d),|,(?!\d)/;
+
+/**
+ * Separa um texto colado em vários itens. Separadores: quebra de linha,
+ * vírgula e ponto e vírgula, que podem vir misturados no mesmo texto.
+ * "arroz 1,5 kg" continua sendo um item só; ponto e vírgula entre dígitos
+ * separa normalmente. Pedaços vazios e espaços nas pontas somem.
+ */
+export function separaItens(texto) {
+  if (texto === undefined || texto === null) return [];
+  const itens = String(texto)
+    .split(SEPARADORES)
+    .map((pedaco) => pedaco.trim())
+    .filter(Boolean);
+  if (itens.length > MAX_ITENS_DE_UMA_VEZ) {
+    throw new ValidationError(`Dá para adicionar no máximo ${MAX_ITENS_DE_UMA_VEZ} itens de uma vez.`);
+  }
+  return itens;
 }
 
 export function defaultListName(date = new Date()) {
@@ -323,11 +347,11 @@ export class Store {
     return this.getItem(id);
   }
 
-  // Aceita várias linhas coladas de uma vez ("arroz\nfeijao\nleite").
+  // Aceita vários itens colados de uma vez ("arroz, feijao; leite" ou um por linha).
   addItems(listId, lines, { author = null } = {}) {
     const list = this.requireOpenList(listId);
-    const names = (Array.isArray(lines) ? lines : String(lines).split('\n'))
-      .map((line) => clean(line))
+    const names = separaItens(Array.isArray(lines) ? lines.join('\n') : lines)
+      .map((pedaco) => clean(pedaco))
       .filter(Boolean);
     if (names.length === 0) throw new ValidationError('Escreva ao menos um item.');
     return this.transaction(() => names.map((name) => this.addItem(list.id, { name, author })));

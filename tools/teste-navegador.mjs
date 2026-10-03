@@ -213,6 +213,22 @@ try {
   await terceiro.waitForSelector('.composer__input', { timeout: 8000 }).catch(() => {});
   conferir('a senha nova entra', (await terceiro.locator('.composer__input').count()) === 1);
 
+  // Colar vários itens de uma vez: a vírgula também separa.
+  const antesDeColar = await terceiro.locator('.item').count();
+  await terceiro.fill('.composer__input', 'abacate, tomate, maçã');
+  await terceiro.click('.composer__send');
+  await terceiro.waitForTimeout(800);
+  conferir(
+    'colar "abacate, tomate, maçã" vira três itens',
+    (await terceiro.locator('.item').count()) === antesDeColar + 3,
+  );
+  conferir(
+    'os três itens colados entram com o nome certo',
+    (await terceiro.locator('.item__name', { hasText: 'abacate' }).count()) === 1 &&
+      (await terceiro.locator('.item__name', { hasText: 'tomate' }).count()) === 1 &&
+      (await terceiro.locator('.item__name', { hasText: 'maçã' }).count()) === 1,
+  );
+
   // PWA.
   const temServiceWorker = await renan.evaluate(async () => {
     const registro = await navigator.serviceWorker.ready;

@@ -35,6 +35,17 @@ const root = document.getElementById('app');
 const composer = buildComposer();
 document.body.append(composer.node);
 
+/**
+ * Palpite de "tem mais de um item aí": quebra de linha, ponto e vírgula ou
+ * uma vírgula que não esteja entre dígitos (em pt-BR a vírgula entre dígitos
+ * é decimal: "arroz 1,5 kg" é um item só). Serve só para escolher o caminho —
+ * a separação de verdade é a do servidor, e se ele devolver um item só está
+ * certo do mesmo jeito.
+ */
+function pareceVariosItens(texto) {
+  return /[\n;]/.test(texto) || /(^|\D),|,(\D|$)/.test(texto);
+}
+
 function buildComposer() {
   const input = el('input', {
     class: 'composer__input',
@@ -152,13 +163,15 @@ function buildComposer() {
     const raw = input.value.trim();
     if (!raw || !targetListId) return;
 
-    // Várias linhas coladas viram vários itens de uma vez.
-    const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+    // Texto colado com vários itens vai inteiro para o servidor, que é quem
+    // separa de verdade; aqui só escolhemos o caminho (um item tem atualização
+    // otimista na tela, vários esperam a resposta).
+    const varios = pareceVariosItens(raw);
     input.value = '';
     send.disabled = true;
 
-    if (lines.length > 1) {
-      await actions.addManyItems(targetListId, lines).catch(() => {});
+    if (varios) {
+      await actions.addManyItems(targetListId, [raw]).catch(() => {});
     } else {
       await addNow({ name: raw, qty: qty.value.trim(), url: url.value.trim() });
     }

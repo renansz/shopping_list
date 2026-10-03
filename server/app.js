@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, ValidationError } from './store.js';
+import { Store, ValidationError, separaItens } from './store.js';
 import { SessionStore } from './sessions.js';
 import { GerenciadorDeSenha, normaliza } from './senha.js';
 import { EventHub } from './events.js';
@@ -361,7 +361,8 @@ export function createApp({ config, db }) {
     const body = await readJsonBody(req);
     const author = ctx.user?.name ?? null;
     let created;
-    if (Array.isArray(body.names) || (typeof body.name === 'string' && body.name.includes('\n'))) {
+    // Quem separa o texto colado é o store, para a regra viver num lugar só.
+    if (Array.isArray(body.names) || (typeof body.name === 'string' && separaItens(body.name).length > 1)) {
       created = store.addItems(ctx.params.id, body.names ?? body.name, { author });
     } else {
       created = [

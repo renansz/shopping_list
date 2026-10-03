@@ -132,6 +132,25 @@ test('fluxo completo: adicionar, marcar, finalizar e consultar histórico', asyn
   assert.equal(editarFinalizada.status, 409);
 });
 
+test('texto colado com vírgulas vira vários itens', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const { data: inicial } = await srv.call('GET', '/api/state');
+  const listId = inicial.current.id;
+
+  const criado = await srv.call('POST', `/api/lists/${listId}/items`, { name: 'abacate, tomate, maçã' });
+  assert.equal(criado.status, 201);
+  assert.deepEqual(criado.data.items.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(criado.data.list.items.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+
+  // Vírgula decimal não separa: continua um item só.
+  const decimal = await srv.call('POST', `/api/lists/${listId}/items`, { name: 'arroz 1,5 kg' });
+  assert.equal(decimal.data.items.length, 1);
+  assert.equal(decimal.data.items[0].name, 'arroz 1,5 kg');
+});
+
 test('sempre ha uma lista atual, mesmo após excluir', async (t) => {
   const srv = await startServer();
   t.after(() => srv.close());
