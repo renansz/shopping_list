@@ -30,6 +30,9 @@ aparece na hora na tela dos outros.
 - **Sugestões do próprio histórico.** Ao digitar, o app sugere o que a casa já
   comprou antes.
 - **Quantidade e observação por item** (2 kg, 3 caixas, "a marca azul").
+- **Colar vários itens de uma vez.** Quebra de linha, vírgula e ponto e vírgula
+  separam: "abacate, tomate, maçã" vira três itens. A vírgula de número não
+  conta — "arroz 1,5 kg" continua sendo um item só. São até 100 por vez.
 - **Entrar por link, sem senha.** Quem já tem acesso gera um convite nomeado
   no menu **Acessos** e manda pelo WhatsApp; a pessoa entra só de tocar. A
   sessão não expira sozinha — só sai por logout ou se alguém revogar aquele

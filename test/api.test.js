@@ -132,6 +132,62 @@ test('fluxo completo: adicionar, marcar, finalizar e consultar histórico', asyn
   assert.equal(editarFinalizada.status, 409);
 });
 
+test('texto colado com vírgulas vira vários itens', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const { data: inicial } = await srv.call('GET', '/api/state');
+  const listId = inicial.current.id;
+
+  const criado = await srv.call('POST', `/api/lists/${listId}/items`, { name: 'abacate, tomate, maçã' });
+  assert.equal(criado.status, 201);
+  assert.deepEqual(criado.data.items.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(criado.data.list.items.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+
+  // Vírgula decimal não separa: continua um item só.
+  const decimal = await srv.call('POST', `/api/lists/${listId}/items`, { name: 'arroz 1,5 kg' });
+  assert.equal(decimal.data.items.length, 1);
+  assert.equal(decimal.data.items[0].name, 'arroz 1,5 kg');
+
+  // Quantidade/link preenchidos: a vírgula fica no nome, o item é um só.
+  const comDetalhes = await srv.call('POST', `/api/lists/${listId}/items`, {
+    name: 'queijo, prato',
+    qty: '300 g',
+  });
+  assert.equal(comDetalhes.data.items.length, 1);
+  assert.equal(comDetalhes.data.items[0].qty, '300 g');
+});
+
+test('texto colado com quebra de linha continua virando vários itens', async (t) => {
+  const srv = await startServer();
+  t.after(() => srv.close());
+  await srv.login('renan');
+
+  const { data: inicial } = await srv.call('GET', '/api/state');
+  const listId = inicial.current.id;
+
+  // CRLF: é o que vem de Windows, do Notes do iPhone e de planilha.
+  const colado = await srv.call('POST', `/api/lists/${listId}/items`, {
+    name: 'abacate\r\ntomate\r\n\r\n  maçã  \r\n',
+  });
+  assert.equal(colado.status, 201);
+  assert.deepEqual(colado.data.items.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+
+  // Linha com vírgula dentro: a quebra de linha separa e a vírgula também.
+  const misturado = await srv.call('POST', `/api/lists/${listId}/items`, {
+    name: 'arroz, feijão\nleite 1,5 L',
+  });
+  assert.deepEqual(misturado.data.items.map((item) => item.name), ['arroz', 'feijão', 'leite 1,5 L']);
+
+  // Mesmo com quantidade preenchida, a quebra de linha separa.
+  const comQuantidade = await srv.call('POST', `/api/lists/${listId}/items`, {
+    name: 'pão\nleite',
+    qty: '2',
+  });
+  assert.equal(comQuantidade.data.items.length, 2);
+});
+
 test('sempre ha uma lista atual, mesmo após excluir', async (t) => {
   const srv = await startServer();
   t.after(() => srv.close());

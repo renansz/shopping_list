@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, ValidationError } from './store.js';
+import { Store, ValidationError, separaItens } from './store.js';
 import { SessionStore } from './sessions.js';
 import { GerenciadorDeSenha, normaliza } from './senha.js';
 import { EventHub } from './events.js';
@@ -361,7 +361,13 @@ export function createApp({ config, db }) {
     const body = await readJsonBody(req);
     const author = ctx.user?.name ?? null;
     let created;
-    if (Array.isArray(body.names) || (typeof body.name === 'string' && body.name.includes('\n'))) {
+    // Quem separa o texto colado é o store, para a regra viver num lugar só.
+    // Com quantidade/link/observação preenchidos a pessoa quis UM item, então
+    // a vírgula no nome não separa (esses campos se perderiam). Quebra de
+    // linha é o jeito principal de colar vários e separa de qualquer forma.
+    const nome = typeof body.name === 'string' ? body.name : '';
+    const umItemSo = Boolean(body.qty || body.url || body.note) && !/[\r\n]/.test(nome);
+    if (Array.isArray(body.names) || (!umItemSo && nome && separaItens(nome).length > 1)) {
       created = store.addItems(ctx.params.id, body.names ?? body.name, { author });
     } else {
       created = [

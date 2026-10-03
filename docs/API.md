@@ -112,6 +112,12 @@ Uma lista (`list`) tem:
 | `GET` | `/api/suggestions?q&limit&excludeListId` | Sugestões vindas do histórico |
 | `GET` | `/api/stats` | Contagens gerais e quantos aparelhos estão conectados |
 
+Em `name` (e em cada entrada de `names`), quebra de linha, vírgula e ponto e
+vírgula separam itens: `{ "name": "abacate, tomate, maçã" }` cria três. A
+vírgula entre dígitos não separa, porque em pt-BR ela é decimal — `arroz 1,5 kg`
+é um item só. Espaços das pontas somem, pedaços vazios são ignorados e passar de
+100 itens de uma vez devolve `400`.
+
 Um item (`item`):
 
 ```json

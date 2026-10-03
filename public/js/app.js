@@ -35,6 +35,21 @@ const root = document.getElementById('app');
 const composer = buildComposer();
 document.body.append(composer.node);
 
+/**
+ * Palpite de "tem mais de um item aí", só para escolher o caminho — a
+ * separação de verdade é a do servidor, e se ele devolver um item só está
+ * certo do mesmo jeito.
+ *
+ * Quebra de linha é definitiva: tendo \r ou \n, é texto colado com vários
+ * itens, ponto final. O resto é palpite: ponto e vírgula, ou uma vírgula que
+ * não esteja entre dígitos (em pt-BR a vírgula entre dígitos é decimal, então
+ * "arroz 1,5 kg" é um item só).
+ */
+function pareceVariosItens(texto) {
+  if (/[\r\n]/.test(texto)) return true;
+  return /;/.test(texto) || /(^|\D),|,(\D|$)/.test(texto);
+}
+
 function buildComposer() {
   const input = el('input', {
     class: 'composer__input',
@@ -97,6 +112,25 @@ function buildComposer() {
   let targetListId = null;
   let debounce;
 
+  // Um <input> de uma linha achata quebras de linha em espaço, o que grudaria
+  // a lista colada num item só ("abacate tomate maçã"). Interceptamos a
+  // colagem e trocamos as quebras por vírgula, que sobrevive no campo, separa
+  // igual e deixa a pessoa conferir antes de adicionar.
+  input.addEventListener('paste', (event) => {
+    const colado = event.clipboardData?.getData('text') ?? '';
+    if (!/\r?\n/.test(colado)) return; // sem quebra de linha o navegador dá conta
+    event.preventDefault();
+    const emUmaLinha = colado
+      .split(/\r?\n/)
+      .map((linha) => linha.trim())
+      .filter(Boolean)
+      .join(', ');
+    const inicio = input.selectionStart ?? input.value.length;
+    const fim = input.selectionEnd ?? input.value.length;
+    input.setRangeText(emUmaLinha, inicio, fim, 'end');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
   input.addEventListener('input', () => {
     send.disabled = input.value.trim().length === 0;
     clearTimeout(debounce);
@@ -152,13 +186,19 @@ function buildComposer() {
     const raw = input.value.trim();
     if (!raw || !targetListId) return;
 
-    // Várias linhas coladas viram vários itens de uma vez.
-    const lines = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+    // Texto colado com vários itens vai inteiro para o servidor, que é quem
+    // separa de verdade; aqui só escolhemos o caminho (um item tem atualização
+    // otimista na tela, vários esperam a resposta).
+    // Quantidade ou link preenchidos dizem que a pessoa quis UM item só:
+    // nesse caso a vírgula no nome não separa, senão esses campos se perderiam.
+    // Quebra de linha, que é o jeito principal de colar vários, separa sempre.
+    const detalhesPreenchidos = Boolean(qty.value.trim() || url.value.trim());
+    const varios = /[\r\n]/.test(raw) || (pareceVariosItens(raw) && !detalhesPreenchidos);
     input.value = '';
     send.disabled = true;
 
-    if (lines.length > 1) {
-      await actions.addManyItems(targetListId, lines).catch(() => {});
+    if (varios) {
+      await actions.addManyItems(targetListId, [raw]).catch(() => {});
     } else {
       await addNow({ name: raw, qty: qty.value.trim(), url: url.value.trim() });
     }
