@@ -65,15 +65,41 @@ test('vírgula entre dígitos é decimal, não separador', () => {
   assert.deepEqual(separaItens('1;5'), ['1', '5']);
 });
 
-test('separar limpa espaços das pontas e descarta pedaços vazios', () => {
+test('separar limpa espaços e tabulações das pontas e descarta pedaços vazios', () => {
   assert.deepEqual(separaItens('  abacate ,  tomate  '), ['abacate', 'tomate']);
+  assert.deepEqual(separaItens('\tabacate\t\n \t tomate \t'), ['abacate', 'tomate']);
   assert.deepEqual(separaItens('abacate,,tomate,'), ['abacate', 'tomate']);
   assert.deepEqual(separaItens(' ,; \n '), []);
+  assert.deepEqual(separaItens('   \n\t  '), []);
   assert.deepEqual(separaItens(''), []);
+});
+
+test('quebra de linha do Windows e de app de celular (CRLF) separa igual', () => {
+  // Copiar de WhatsApp, Notes do iPhone ou planilha costuma trazer \r\n:
+  // sem tratar isso, sobraria um \r grudado no fim de cada item.
+  assert.deepEqual(separaItens('abacate\r\ntomate\r\nmaçã'), ['abacate', 'tomate', 'maçã']);
+  assert.deepEqual(separaItens('abacate\rtomate'), ['abacate', 'tomate']);
+});
+
+test('linhas em branco no meio não viram itens vazios', () => {
+  assert.deepEqual(separaItens('abacate\n\n\ntomate'), ['abacate', 'tomate']);
+  assert.deepEqual(separaItens('\n abacate \n\n tomate \n'), ['abacate', 'tomate']);
+  assert.deepEqual(separaItens('abacate\r\n\r\ntomate'), ['abacate', 'tomate']);
+});
+
+test('quebra de linha convive com vírgula na mesma linha', () => {
+  assert.deepEqual(separaItens('arroz, feijão\nleite 1,5 L'), ['arroz', 'feijão', 'leite 1,5 L']);
 });
 
 test('texto sem separador continua virando um item só', () => {
   assert.deepEqual(separaItens('leite integral'), ['leite integral']);
+  assert.deepEqual(separaItens('  leite integral  '), ['leite integral']);
+});
+
+test('limite de 100 vale também para linhas coladas', () => {
+  const cem = Array.from({ length: 100 }, (_, n) => `item ${n + 1}`);
+  assert.equal(separaItens(cem.join('\r\n')).length, 100);
+  assert.throws(() => separaItens([...cem, 'item 101'].join('\n')), ValidationError);
 });
 
 test('recusa colar mais de 100 itens de uma vez', () => {
@@ -88,6 +114,14 @@ test('adicionar vários aceita os separadores no texto colado', () => {
   const list = store.ensureCurrentList();
   const created = store.addItems(list.id, 'abacate, tomate; maçã\narroz 1,5 kg');
   assert.deepEqual(created.map((item) => item.name), ['abacate', 'tomate', 'maçã', 'arroz 1,5 kg']);
+});
+
+test('adicionar vários a partir de texto com CRLF não deixa \\r no nome', () => {
+  const store = newStore();
+  const list = store.ensureCurrentList();
+  const created = store.addItems(list.id, 'abacate\r\ntomate\r\n\r\nmaçã\r\n');
+  assert.deepEqual(created.map((item) => item.name), ['abacate', 'tomate', 'maçã']);
+  assert.ok(created.every((item) => !item.name.includes('\r')));
 });
 
 test('link do item só aceita http(s) e completa o esquema', () => {

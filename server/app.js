@@ -362,7 +362,12 @@ export function createApp({ config, db }) {
     const author = ctx.user?.name ?? null;
     let created;
     // Quem separa o texto colado é o store, para a regra viver num lugar só.
-    if (Array.isArray(body.names) || (typeof body.name === 'string' && separaItens(body.name).length > 1)) {
+    // Com quantidade/link/observação preenchidos a pessoa quis UM item, então
+    // a vírgula no nome não separa (esses campos se perderiam). Quebra de
+    // linha é o jeito principal de colar vários e separa de qualquer forma.
+    const nome = typeof body.name === 'string' ? body.name : '';
+    const umItemSo = Boolean(body.qty || body.url || body.note) && !/[\r\n]/.test(nome);
+    if (Array.isArray(body.names) || (!umItemSo && nome && separaItens(nome).length > 1)) {
       created = store.addItems(ctx.params.id, body.names ?? body.name, { author });
     } else {
       created = [

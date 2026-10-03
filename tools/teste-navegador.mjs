@@ -229,6 +229,54 @@ try {
       (await terceiro.locator('.item__name', { hasText: 'maçã' }).count()) === 1,
   );
 
+  // Quantidade preenchida diz que é UM item: a vírgula no nome não separa.
+  const antesDoDetalhe = await terceiro.locator('.item').count();
+  // Abre os campos extras só se estiverem fechados (o botão é um alternador).
+  if (await terceiro.locator('.composer__extra[hidden]').count()) {
+    await terceiro.click('.composer__toggle');
+  }
+  await terceiro.fill('.composer__input', 'fone de ouvido, modelo novo');
+  await terceiro.getByPlaceholder('Quantidade').fill('1 un');
+  await terceiro.click('.composer__send');
+  await terceiro.waitForTimeout(800);
+  conferir(
+    'com quantidade preenchida a vírgula não separa',
+    (await terceiro.locator('.item').count()) === antesDoDetalhe + 1,
+  );
+  conferir(
+    'a quantidade não se perde nesse caso',
+    (await terceiro.locator('.item__qty', { hasText: '1 un' }).count()) === 1,
+  );
+
+  // Colagem de verdade (Ctrl+V, pelo clipboard do navegador) de um texto com
+  // quebra de linha: é o caso principal, copiar a lista de uma mensagem. Um
+  // <input> de uma linha achataria o \n em espaço e grudaria tudo num item só,
+  // por isso o app trata a colagem.
+  await ctxTerceiro.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+  await terceiro.evaluate(() => navigator.clipboard.writeText('pera\r\nmelancia\r\n\r\nuva\r\n'));
+  const antesDeColarLinhas = await terceiro.locator('.item').count();
+  await terceiro.fill('.composer__input', '');
+  await terceiro.click('.composer__input');
+  await terceiro.keyboard.press('Control+V');
+  await terceiro.waitForTimeout(300);
+  conferir(
+    'colar com quebra de linha não gruda as linhas num item só',
+    !/pera melancia/.test(await terceiro.inputValue('.composer__input')),
+  );
+
+  await terceiro.click('.composer__send');
+  await terceiro.waitForTimeout(900);
+  conferir(
+    'colar três linhas vira três itens',
+    (await terceiro.locator('.item').count()) === antesDeColarLinhas + 3,
+  );
+  conferir(
+    'os itens colados por linha entram com o nome certo',
+    (await terceiro.locator('.item__name', { hasText: 'pera' }).count()) === 1 &&
+      (await terceiro.locator('.item__name', { hasText: 'melancia' }).count()) === 1 &&
+      (await terceiro.locator('.item__name', { hasText: 'uva' }).count()) === 1,
+  );
+
   // PWA.
   const temServiceWorker = await renan.evaluate(async () => {
     const registro = await navigator.serviceWorker.ready;

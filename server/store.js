@@ -45,15 +45,19 @@ export function normalizeUrl(value) {
   return parsed.toString();
 }
 
-// A vírgula só deixa de separar quando tem dígito dos dois lados: em pt-BR
-// ela é o decimal ("1,5"). Com letra de um dos lados ("arroz 5,feijão"), separa.
-const SEPARADORES = /\r?\n|;|(?<!\d),|,(?!\d)/;
+// A quebra de linha é o separador principal e vem primeiro: qualquer \r ou \n
+// (CRLF de Windows, iPhone ou planilha incluso) sempre separa, e os pedaços
+// vazios que isso gera somem depois. A vírgula só deixa de separar quando tem
+// dígito dos dois lados: em pt-BR ela é o decimal ("1,5"). Com letra de um dos
+// lados ("arroz 5,feijão"), separa.
+const SEPARADORES = /[\r\n]|;|(?<!\d),|,(?!\d)/;
 
 /**
- * Separa um texto colado em vários itens. Separadores: quebra de linha,
- * vírgula e ponto e vírgula, que podem vir misturados no mesmo texto.
- * "arroz 1,5 kg" continua sendo um item só; ponto e vírgula entre dígitos
- * separa normalmente. Pedaços vazios e espaços nas pontas somem.
+ * Separa um texto colado em vários itens. Separadores: quebra de linha
+ * (o principal), ponto e vírgula e vírgula, que podem vir misturados no
+ * mesmo texto. "arroz 1,5 kg" continua sendo um item só; ponto e vírgula
+ * entre dígitos separa normalmente. Pedaços vazios e espaços (e tabulações)
+ * nas pontas somem.
  */
 export function separaItens(texto) {
   if (texto === undefined || texto === null) return [];
